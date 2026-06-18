@@ -3,7 +3,7 @@ const SERVICE="6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const RX="6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const TX="6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const $=id=>document.getElementById(id);
-let device,rx,tx,tool="brush",drawing=false,active=0;
+let device,rx,tx,serialPort,serialWriter,activeTransport=null,tool="brush",drawing=false,active=0;
 let project={name:"My wall show",frameMs:250,frames:[blank()]};
 
 function blank(){return Array(N).fill("#000000")}
@@ -13,18 +13,19 @@ function setStatus(text,on=false,error=false){
   $("message").textContent=text;
   $("message").className=error?"error":"note";
 }
-function setConnected(value){
+function setConnected(value,label=""){
   $("connect").disabled=value;
+  $("connectUsb").disabled=value;
   $("disconnect").disabled=!value;
   ["sendFrame","uploadShow","sendVibe"].forEach(id=>$(id).disabled=!value);
-  setStatus(value?"Connected to "+(device?.name||"diffuser"):"Not connected",value);
+  setStatus(value?"Connected via "+label:"Not connected",value);
 }
 async function connect(){
   if(!navigator.bluetooth){setStatus("Web Bluetooth is unavailable here.",false,true);return}
   try{
     setStatus("Choose LED-Diffuser in the pairing window...");
     device=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE]}],optionalServices:[SERVICE]});
-    device.addEventListener("gattserverdisconnected",()=>setConnected(false));
+    device.addEventListener("gattserverdisconnected",()=>{activeTransport=null;setConnected(false)});
     const server=await device.gatt.connect();
     const service=await server.getPrimaryService(SERVICE);
     rx=await service.getCharacteristic(RX);
@@ -33,16 +34,43 @@ async function connect(){
     tx.addEventListener("characteristicvaluechanged",event=>{
       setStatus(new TextDecoder().decode(event.target.value),true);
     });
-    setConnected(true);
+    activeTransport="ble";
+    setConnected(true,device?.name||"Bluetooth");
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
+async function connectUsb(){
+  if(!navigator.serial){setStatus("Web Serial requires Chrome or Edge on a computer.",false,true);return}
+  try{
+    serialPort=await navigator.serial.requestPort();
+    await serialPort.open({baudRate:115200});
+    serialWriter=serialPort.writable.getWriter();
+    activeTransport="usb";
+    setConnected(true,"USB");
+    await new Promise(resolve=>setTimeout(resolve,1200));
+  }catch(error){setStatus(error.message||String(error),false,true)}
+}
+async function disconnectTransport(){
+  try{
+    if(device?.gatt?.connected)device.gatt.disconnect();
+    if(serialWriter){serialWriter.releaseLock();serialWriter=null}
+    if(serialPort){await serialPort.close();serialPort=null}
+  }finally{activeTransport=null;setConnected(false)}
+}
 async function transmit(payload){
-  if(!rx)throw Error("Connect Bluetooth first");
   const bytes=new TextEncoder().encode(JSON.stringify(payload)+"\n");
-  for(let i=0;i<bytes.length;i+=18){
-    await rx.writeValueWithoutResponse(bytes.slice(i,i+18));
-    $("progress").style.width=Math.round(100*Math.min(bytes.length,i+18)/bytes.length)+"%";
-  }
+  if(activeTransport==="usb"){
+    if(!serialWriter)throw Error("USB connection is not open");
+    await serialWriter.write(bytes);
+    $("progress").style.width="100%";
+  }else if(activeTransport==="ble"){
+    if(!rx)throw Error("Bluetooth connection is not open");
+    for(let i=0;i<bytes.length;i+=18){
+      const part=bytes.slice(i,i+18);
+      if(rx.writeValueWithoutResponse)await rx.writeValueWithoutResponse(part);
+      else await rx.writeValue(part);
+      $("progress").style.width=Math.round(100*Math.min(bytes.length,i+18)/bytes.length)+"%";
+    }
+  }else throw Error("Connect Bluetooth or USB first");
   setTimeout(()=>$("progress").style.width="0",800);
 }
 function pixelsHex(frame){return frame.map(color=>color.slice(1)).join("")}
@@ -181,7 +209,8 @@ document.querySelectorAll(".tab").forEach(button=>{
   };
 });
 $("connect").onclick=connect;
-$("disconnect").onclick=()=>device?.gatt?.disconnect();
+$("connectUsb").onclick=connectUsb;
+$("disconnect").onclick=disconnectTransport;
 $("sendFrame").onclick=sendCurrent;
 $("uploadShow").onclick=uploadShow;
 $("clear").onclick=()=>{project.frames[active]=blank();draw()};
