@@ -3,7 +3,7 @@ const SERVICE="6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const RX="6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const TX="6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const $=id=>document.getElementById(id);
-let device,rx,tx,serialPort,serialWriter,activeTransport=null,tool="brush",drawing=false,lastPainted=null,refreshTimer=null,active=0;
+let device,rx,tx,serialPort,serialWriter,serialReader,serialReadTask,activeTransport=null,receiveBuffer="",replyWaiters=[],tool="brush",drawing=false,lastPainted=null,refreshTimer=null,active=0;
 let project={name:"My wall show",frameMs:250,frames:[blank()]};
 
 function blank(){return Array(N).fill("#000000")}
@@ -25,14 +25,14 @@ async function connect(){
   try{
     setStatus("Choose LED-Diffuser in the pairing window...");
     device=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE]}],optionalServices:[SERVICE]});
-    device.addEventListener("gattserverdisconnected",()=>{activeTransport=null;setConnected(false)});
+    device.addEventListener("gattserverdisconnected",()=>{activeTransport=null;rejectPendingReplies("Bluetooth disconnected");appendTransportLog("Bluetooth disconnected","error");setConnected(false)});
     const server=await device.gatt.connect();
     const service=await server.getPrimaryService(SERVICE);
     rx=await service.getCharacteristic(RX);
     tx=await service.getCharacteristic(TX);
     await tx.startNotifications();
     tx.addEventListener("characteristicvaluechanged",event=>{
-      setStatus(new TextDecoder().decode(event.target.value),true);
+      handleDeviceChunk(new TextDecoder().decode(event.target.value));
     });
     activeTransport="ble";
     setConnected(true,device?.name||"Bluetooth");
@@ -45,6 +45,7 @@ async function connectUsb(){
     await serialPort.open({baudRate:115200});
     await serialPort.setSignals({dataTerminalReady:true,requestToSend:false});
     serialWriter=serialPort.writable.getWriter();
+    serialReadTask=readUsbLoop(serialPort);
     activeTransport="usb";
     setConnected(true,"USB");
     await new Promise(resolve=>setTimeout(resolve,2000));
@@ -54,40 +55,174 @@ async function disconnectTransport(){
   try{
     if(device?.gatt?.connected)device.gatt.disconnect();
     if(serialWriter){serialWriter.releaseLock();serialWriter=null}
+    if(serialReader){await serialReader.cancel()}
+    if(serialReadTask){await serialReadTask;serialReadTask=null}
     if(serialPort){await serialPort.setSignals({dataTerminalReady:false,requestToSend:false});await serialPort.close();serialPort=null}
-  }finally{activeTransport=null;setConnected(false)}
+  }finally{activeTransport=null;rejectPendingReplies("Disconnected");setConnected(false)}
 }
-async function transmit(payload){
+function appendTransportLog(message,level="info"){
+  const log=$("transportLog");
+  if(!log)return;
+  const stamp=new Date().toLocaleTimeString();
+  log.textContent+=`[${stamp}] ${level.toUpperCase()}: ${message}\n`;
+  const lines=log.textContent.split("\n");
+  if(lines.length>120)log.textContent=lines.slice(-120).join("\n");
+  log.scrollTop=log.scrollHeight;
+}
+function rejectPendingReplies(reason){
+  while(replyWaiters.length){
+    const waiter=replyWaiters.shift();
+    clearTimeout(waiter.timer);
+    waiter.reject(Error(reason));
+  }
+}
+function handleDeviceLine(line){
+  line=line.trim();
+  if(!line)return;
+  appendTransportLog(line,line.includes("[ERROR]")?"error":"device");
+  if(!line.startsWith("{"))return;
+  try{
+    const reply=JSON.parse(line);
+    const waiter=replyWaiters.shift();
+    if(waiter){
+      clearTimeout(waiter.timer);
+      waiter.resolve(reply);
+    }
+  }catch(error){
+    appendTransportLog("Malformed JSON reply: "+error.message,"error");
+  }
+}
+function handleDeviceChunk(text){
+  receiveBuffer+=text;
+  let newline;
+  while((newline=receiveBuffer.indexOf("\n"))>=0){
+    const line=receiveBuffer.slice(0,newline);
+    receiveBuffer=receiveBuffer.slice(newline+1);
+    handleDeviceLine(line);
+  }
+}
+async function readUsbLoop(port){
+  const reader=port.readable.getReader();
+  serialReader=reader;
+  const decoder=new TextDecoder();
+  try{
+    while(true){
+      const {value,done}=await reader.read();
+      if(done)break;
+      if(value)handleDeviceChunk(decoder.decode(value,{stream:true}));
+    }
+  }catch(error){
+    if(activeTransport==="usb"){
+      appendTransportLog("USB read failed: "+error.message,"error");
+      rejectPendingReplies("USB connection lost");
+      setConnected(false);
+    }
+  }finally{
+    try{reader.releaseLock()}catch(error){}
+    if(serialReader===reader)serialReader=null;
+  }
+}
+function waitForReply(timeoutMs=12000){
+  return new Promise((resolve,reject)=>{
+    const waiter={resolve,reject,timer:null};
+    waiter.timer=setTimeout(()=>{
+      const index=replyWaiters.indexOf(waiter);
+      if(index>=0)replyWaiters.splice(index,1);
+      reject(Error("Device acknowledgement timed out"));
+    },timeoutMs);
+    replyWaiters.push(waiter);
+  });
+}
+function setUploadProgress(value){
+  $("progress").style.width=Math.max(0,Math.min(100,value))+"%";
+}
+async function transmit(payload,startPercent=0,endPercent=100){
   const bytes=new TextEncoder().encode(JSON.stringify(payload)+"\n");
+  appendTransportLog(`Sending ${payload.op||payload.mode||"command"} (${bytes.length} bytes)`);
   if(activeTransport==="usb"){
     if(!serialWriter)throw Error("USB connection is not open");
     await serialWriter.write(bytes);
-    $("progress").style.width="100%";
+    setUploadProgress(endPercent);
   }else if(activeTransport==="ble"){
     if(!rx)throw Error("Bluetooth connection is not open");
-    const chunkSize=180;
+    const chunkSize=160;
     for(let i=0;i<bytes.length;i+=chunkSize){
-      const part=bytes.slice(i,i+chunkSize);
-      await rx.writeValue(part);
-      $("progress").style.width=Math.round(100*Math.min(bytes.length,i+chunkSize)/bytes.length)+"%";
+      await rx.writeValue(bytes.slice(i,i+chunkSize));
+      const fraction=Math.min(bytes.length,i+chunkSize)/bytes.length;
+      setUploadProgress(startPercent+(endPercent-startPercent)*fraction);
     }
   }else throw Error("Connect Bluetooth or USB first");
-  setTimeout(()=>$("progress").style.width="0",800);
+}
+async function sendCommand(payload,startPercent=0,endPercent=100,timeoutMs=12000){
+  const replyPromise=waitForReply(timeoutMs);
+  try{
+    await transmit(payload,startPercent,endPercent);
+  }catch(error){
+    const waiter=replyWaiters.shift();
+    if(waiter){clearTimeout(waiter.timer);waiter.reject(error)}
+    throw error;
+  }
+  const reply=await replyPromise;
+  if(!(reply.ok===1||reply.ok===true))throw Error(reply.error||"Device rejected command");
+  return reply;
 }
 function pixelsHex(frame){return frame.map(color=>color.slice(1)).join("")}
 async function sendCurrent(){
   try{
+    $("sendFrame").disabled=true;
     setStatus("Sending frame...");
-    await transmit({brightness:+$("brightness").value,pixels:pixelsHex(project.frames[active])});
-    setStatus("Frame saved on diffuser",true);
-  }catch(error){setStatus(error.message,false,true)}
+    await sendCommand({brightness:+$("brightness").value,pixels:pixelsHex(project.frames[active])},0,100,15000);
+    setStatus("Frame confirmed by diffuser",true);
+    appendTransportLog("Single frame accepted and saved");
+  }catch(error){
+    setStatus(error.message,false,true);
+    appendTransportLog(error.message,"error");
+  }finally{
+    $("sendFrame").disabled=!activeTransport;
+    setTimeout(()=>setUploadProgress(0),800);
+  }
 }
 async function uploadShow(){
+  const button=$("uploadShow");
+  button.disabled=true;
+  const totalSteps=project.frames.length+2;
   try{
-    setStatus("Uploading "+project.frames.length+" frames...");
-    await transmit({brightness:+$("brightness").value,frameMs:project.frameMs,frames:project.frames.map(pixelsHex)});
-    setStatus("Show saved and playing",true);
-  }catch(error){setStatus(error.message,false,true)}
+    setUploadProgress(0);
+    setStatus(`Starting ${project.frames.length}-frame upload...`);
+    const begun=await sendCommand({
+      op:"show_begin",
+      count:project.frames.length,
+      frameMs:project.frameMs,
+      brightness:+$("brightness").value
+    },0,100/totalSteps,15000);
+    if(begun.op!=="begin"||begun.n!==project.frames.length){
+      throw Error("Device firmware is outdated; flash protocol v2 before uploading shows");
+    }
+    for(let index=0;index<project.frames.length;index++){
+      const startPercent=(index+1)*100/totalSteps;
+      const endPercent=(index+2)*100/totalSteps;
+      setStatus(`Uploading frame ${index+1} of ${project.frames.length}...`);
+      const reply=await sendCommand({
+        op:"show_frame",
+        index,
+        pixels:pixelsHex(project.frames[index])
+      },startPercent,endPercent,20000);
+      if(reply.i!==index)throw Error(`Wrong acknowledgement for frame ${index+1}`);
+      setStatus(`Frame ${index+1}/${project.frames.length} confirmed`,true);
+    }
+    setStatus("Committing show...");
+    const committed=await sendCommand({op:"show_commit"},(totalSteps-1)*100/totalSteps,100,20000);
+    if(committed.done!==project.frames.length)throw Error("Commit frame count did not match");
+    setStatus(`Show saved: ${project.frames.length} frames playing`,true);
+    appendTransportLog(`COMMIT confirmed for ${project.frames.length} frames`);
+  }catch(error){
+    setStatus("Upload failed: "+error.message,false,true);
+    appendTransportLog("Upload failed: "+error.message,"error");
+    try{await sendCommand({op:"show_cancel"},0,0,5000)}catch(cancelError){}
+  }finally{
+    button.disabled=!activeTransport;
+    setTimeout(()=>setUploadProgress(0),1200);
+  }
 }
 
 function initGrid(){
@@ -270,6 +405,7 @@ document.querySelectorAll(".tab").forEach(button=>{
     document.querySelectorAll(".pane").forEach(pane=>pane.hidden=pane.id!==button.dataset.pane);
   };
 });
+$("clearTransportLog").onclick=()=>{$("transportLog").textContent=""};
 $("connect").onclick=connect;
 $("connectUsb").onclick=connectUsb;
 $("disconnect").onclick=disconnectTransport;
@@ -323,12 +459,12 @@ $("importProject").onclick=()=>{
 $("copyPrompt").onclick=async()=>navigator.clipboard.writeText($("aiPrompt").value);
 $("sendVibe").onclick=async()=>{
   try{
-    await transmit({
+    await sendCommand({
       mode:$("mode").value,direction:$("direction").value,font:$("font").value,text:$("text").value,
       brightness:+$("brightness").value,speed:+$("speed").value,
       hue:+$("hue").value,saturation:+$("saturation").value,motion:$("motion").checked
     });
-    setStatus("Live vibe saved",true);
+    setStatus("Live vibe confirmed",true);
   }catch(error){setStatus(error.message,false,true)}
 };
 function sync(){
