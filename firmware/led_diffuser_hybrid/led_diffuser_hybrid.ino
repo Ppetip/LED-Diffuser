@@ -18,6 +18,8 @@
 #define SDA_PIN 8
 #define SCL_PIN 9
 #define MPU_ADDR 0x68
+#define MAX_SHOW_FRAMES 8
+#define PIXEL_HEX_LENGTH (NUM_LEDS * 6)
 
 const char *AP_SSID = "LED-Diffuser";
 const char *AP_PASS = "LEDLEDLED";
@@ -46,6 +48,9 @@ float tiltX = 0, tiltY = 0;
 uint32_t lastFrame = 0;
 int16_t textOffset = VIEW_W;
 String bleBuffer;
+String showFrames[MAX_SHOW_FRAMES];
+uint8_t showCount = 0;
+uint16_t showFrameMs = 250;
 
 void loadState() {
   preferences.begin("leddiff", false);
@@ -57,6 +62,16 @@ void loadState() {
   state.hue = preferences.getUChar("hue", state.hue);
   state.saturation = preferences.getUChar("saturation", state.saturation);
   state.motion = preferences.getBool("motion", state.motion);
+  showCount = min(preferences.getUChar("showCount", 0), (uint8_t)MAX_SHOW_FRAMES);
+  showFrameMs = preferences.getUShort("frameMs", showFrameMs);
+  for (uint8_t i = 0; i < showCount; i++) {
+    String key = "frame" + String(i);
+    showFrames[i] = preferences.getString(key.c_str(), "");
+    if (showFrames[i].length() != PIXEL_HEX_LENGTH) {
+      showCount = i;
+      break;
+    }
+  }
 }
 
 void saveState() {
@@ -68,6 +83,12 @@ void saveState() {
   preferences.putUChar("hue", state.hue);
   preferences.putUChar("saturation", state.saturation);
   preferences.putBool("motion", state.motion);
+  preferences.putUChar("showCount", showCount);
+  preferences.putUShort("frameMs", showFrameMs);
+  for (uint8_t i = 0; i < showCount; i++) {
+    String key = "frame" + String(i);
+    preferences.putString(key.c_str(), showFrames[i]);
+  }
 }
 
 uint16_t ledIndex(uint8_t x, uint8_t y) {
@@ -82,6 +103,36 @@ void setPixel(int x, int y, CRGB color) {
   if (x >= 0 && x < VIEW_W && y >= 0 && y < VIEW_H) {
     leds[ledIndex(x, y)] = color;
   }
+}
+
+uint8_t hexNibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return 0;
+}
+
+uint8_t hexByte(const String &value, uint16_t offset) {
+  return (hexNibble(value[offset]) << 4) | hexNibble(value[offset + 1]);
+}
+
+void renderPixelFrame(const String &pixels) {
+  if (pixels.length() != PIXEL_HEX_LENGTH) return;
+  for (uint8_t y = 0; y < VIEW_H; y++) {
+    for (uint8_t x = 0; x < VIEW_W; x++) {
+      uint16_t offset = (y * VIEW_W + x) * 6;
+      setPixel(x, y, CRGB(hexByte(pixels, offset), hexByte(pixels, offset + 2), hexByte(pixels, offset + 4)));
+    }
+  }
+}
+
+void renderShow(uint32_t now) {
+  if (showCount == 0) {
+    fill_solid(leds, NUM_LEDS, CRGB::Black);
+    return;
+  }
+  uint8_t index = state.mode == "custom" ? 0 : (now / max((uint16_t)50, showFrameMs)) % showCount;
+  renderPixelFrame(showFrames[index]);
 }
 
 bool startMpu() {
@@ -186,6 +237,7 @@ String stateJson() {
   doc["speed"] = state.speed; doc["hue"] = state.hue;
   doc["saturation"] = state.saturation; doc["motion"] = state.motion;
   doc["mpu"] = mpuReady; doc["ip"] = WiFi.softAPIP().toString();
+  doc["showCount"] = showCount; doc["frameMs"] = showFrameMs;
   String out; serializeJson(doc, out); return out;
 }
 
@@ -201,6 +253,37 @@ bool applyCommand(const String &json, String &reply) {
   if (doc["hue"].is<int>()) state.hue = doc["hue"].as<int>();
   if (doc["saturation"].is<int>()) state.saturation = constrain(doc["saturation"].as<int>(), 0, 255);
   if (doc["motion"].is<bool>()) state.motion = doc["motion"].as<bool>();
+  if (doc["frameMs"].is<int>()) showFrameMs = constrain(doc["frameMs"].as<int>(), 50, 5000);
+
+  if (doc["pixels"].is<const char*>()) {
+    String pixels = String(doc["pixels"].as<const char*>());
+    if (pixels.length() != PIXEL_HEX_LENGTH) {
+      reply = "{\"ok\":false,\"error\":\"pixels must contain 1680 hex characters\"}";
+      return false;
+    }
+    showFrames[0] = pixels;
+    showCount = 1;
+    state.mode = "custom";
+  }
+
+  JsonArray frames = doc["frames"].as<JsonArray>();
+  if (!frames.isNull()) {
+    uint8_t nextCount = min((uint8_t)frames.size(), (uint8_t)MAX_SHOW_FRAMES);
+    if (nextCount == 0) {
+      reply = "{\"ok\":false,\"error\":\"show needs at least one frame\"}";
+      return false;
+    }
+    for (uint8_t i = 0; i < nextCount; i++) {
+      showFrames[i] = String(frames[i].as<const char*>());
+      if (showFrames[i].length() != PIXEL_HEX_LENGTH) {
+        reply = "{\"ok\":false,\"error\":\"every frame must contain 1680 hex characters\"}";
+        return false;
+      }
+    }
+    showCount = nextCount;
+    state.mode = "show";
+  }
+
   FastLED.setBrightness(state.brightness);
   saveState();
   reply = "{\"ok\":true,\"state\":" + stateJson() + "}";
@@ -216,7 +299,7 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
       bleBuffer.trim();
       String reply; applyCommand(bleBuffer, reply); bleBuffer = "";
     }
-    if (bleBuffer.length() > 1024) bleBuffer = "";
+    if (bleBuffer.length() > 18000) bleBuffer = "";
   }
 };
 
@@ -292,7 +375,8 @@ void loop() {
   uint32_t now = millis();
   if (now - lastFrame < 33) return;
   lastFrame = now;
-  if (state.mode == "rain") renderRain(now);
+  if (state.mode == "custom" || state.mode == "show") renderShow(now);
+  else if (state.mode == "rain") renderRain(now);
   else if (state.mode == "text") renderText(now);
   else if (state.mode == "tilt") renderTilt(now);
   else renderAura(now);
