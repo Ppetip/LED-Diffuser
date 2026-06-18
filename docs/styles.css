@@ -516,4 +516,4 @@ textarea {
   .right {
     order: 3;
   }
-}
+}.transport-log{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#080b10;border:1px solid var(--line);border-radius:9px;padding:10px;color:#b8f7d4;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}.transport-log+.button{margin-top:6px}
