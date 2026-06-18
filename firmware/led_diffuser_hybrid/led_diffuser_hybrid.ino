@@ -5,6 +5,7 @@
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
 #include <Wire.h>
+#include <Preferences.h>
 
 #define LED_PIN 3
 #define LED_TYPE WS2812B
@@ -27,6 +28,7 @@ const char *BLE_TX = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 CRGB leds[NUM_LEDS];
 WebServer server(80);
 NimBLECharacteristic *txCharacteristic = nullptr;
+Preferences preferences;
 
 struct State {
   String mode = "aura";
@@ -44,6 +46,29 @@ float tiltX = 0, tiltY = 0;
 uint32_t lastFrame = 0;
 int16_t textOffset = VIEW_W;
 String bleBuffer;
+
+void loadState() {
+  preferences.begin("leddiff", false);
+  state.mode = preferences.getString("mode", state.mode);
+  state.text = preferences.getString("text", state.text);
+  state.direction = preferences.getString("direction", state.direction);
+  state.brightness = preferences.getUChar("brightness", state.brightness);
+  state.speed = preferences.getUShort("speed", state.speed);
+  state.hue = preferences.getUChar("hue", state.hue);
+  state.saturation = preferences.getUChar("saturation", state.saturation);
+  state.motion = preferences.getBool("motion", state.motion);
+}
+
+void saveState() {
+  preferences.putString("mode", state.mode);
+  preferences.putString("text", state.text);
+  preferences.putString("direction", state.direction);
+  preferences.putUChar("brightness", state.brightness);
+  preferences.putUShort("speed", state.speed);
+  preferences.putUChar("hue", state.hue);
+  preferences.putUChar("saturation", state.saturation);
+  preferences.putBool("motion", state.motion);
+}
 
 uint16_t ledIndex(uint8_t x, uint8_t y) {
   // Browser coordinates are 28 wide x 10 high. Physical wiring is 10
@@ -177,6 +202,7 @@ bool applyCommand(const String &json, String &reply) {
   if (doc["saturation"].is<int>()) state.saturation = constrain(doc["saturation"].as<int>(), 0, 255);
   if (doc["motion"].is<bool>()) state.motion = doc["motion"].as<bool>();
   FastLED.setBrightness(state.brightness);
+  saveState();
   reply = "{\"ok\":true,\"state\":" + stateJson() + "}";
   if (txCharacteristic) { txCharacteristic->setValue(reply.c_str()); txCharacteristic->notify(); }
   return true;
@@ -247,6 +273,7 @@ void setupWeb() {
 
 void setup() {
   Serial.begin(115200);
+  loadState();
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(state.brightness);
   FastLED.clear(true);
