@@ -48,6 +48,7 @@ float tiltX = 0, tiltY = 0;
 uint32_t lastFrame = 0;
 int16_t textOffset = VIEW_W;
 String bleBuffer;
+String serialBuffer;
 String showFrames[MAX_SHOW_FRAMES];
 uint8_t showCount = 0;
 uint16_t showFrameMs = 250;
@@ -291,6 +292,27 @@ bool applyCommand(const String &json, String &reply) {
   return true;
 }
 
+void handleUsbSerial() {
+  while (Serial.available()) {
+    char c = (char)Serial.read();
+    if (c == '\n') {
+      serialBuffer.trim();
+      if (serialBuffer.length()) {
+        String reply;
+        applyCommand(serialBuffer, reply);
+        Serial.println(reply);
+      }
+      serialBuffer = "";
+    } else if (c != '\r') {
+      serialBuffer += c;
+      if (serialBuffer.length() > 18000) {
+        serialBuffer = "";
+        Serial.println("{\"ok\":false,\"error\":\"USB command too large\"}");
+      }
+    }
+  }
+}
+
 class RxCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override {
     String part = String(characteristic->getValue().c_str());
@@ -376,6 +398,7 @@ void setup() {
 
 void loop() {
   server.handleClient();
+  handleUsbSerial();
   readMpu();
   uint32_t now = millis();
   if (now - lastFrame < 33) return;
