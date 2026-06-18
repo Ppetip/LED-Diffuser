@@ -337,9 +337,14 @@ void setupBle() {
   rx->setCallbacks(new RxCallbacks());
   service->start();
   NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
+  advertising->setName("LED-Diffuser");
   advertising->addServiceUUID(BLE_SERVICE);
   advertising->enableScanResponse(true);
-  advertising->start();
+  bool advertisingStarted = advertising->start();
+  Serial.print("BLE advertising start: ");
+  Serial.println(advertisingStarted ? "yes" : "no");
+  Serial.print("BLE advertising active: ");
+  Serial.println(advertising->isAdvertising() ? "yes" : "no");
 }
 
 void setupWeb() {
