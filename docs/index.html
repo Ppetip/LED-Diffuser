@@ -1,17 +1,64 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#11131a"><title>LED Diffuser Studio</title>
-<style>
-:root{color-scheme:dark;--bg:#0b0d12;--panel:#151923;--line:#30394a;--ink:#f7f8fb;--muted:#98a3b7;--a:#7ce7dd}*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 80% 0,#292447 0,transparent 35%),var(--bg);color:var(--ink);font:15px system-ui,sans-serif}main{max-width:1050px;margin:auto;padding:24px}.head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:20px}h1{font-size:clamp(26px,5vw,48px);margin:0;letter-spacing:-.04em}.sub,.note{color:var(--muted)}.status{padding:8px 12px;border:1px solid var(--line);border-radius:99px}.status.on{color:#062b27;background:var(--a)}.grid{display:grid;grid-template-columns:minmax(310px,1fr) minmax(300px,420px);gap:18px}.card{background:#151923e8;border:1px solid var(--line);border-radius:18px;padding:18px;box-shadow:0 16px 50px #0005}canvas{width:100%;aspect-ratio:28/10;background:#050608;border-radius:12px;image-rendering:pixelated}.controls{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;color:var(--muted);font-size:13px}input,select,button,textarea{width:100%;margin-top:5px;padding:11px;border:1px solid var(--line);border-radius:10px;background:#0d1118;color:var(--ink);font:inherit}input[type=range]{padding:0}.wide{grid-column:1/-1}button{background:linear-gradient(120deg,var(--a),#a4e8a2);color:#09201d;font-weight:750;cursor:pointer}button.secondary{background:#222938;color:var(--ink)}button:disabled{opacity:.45;cursor:not-allowed}.actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}details{margin-top:18px;border-top:1px solid var(--line);padding-top:14px}code{color:var(--a)}.error{color:#ff9caa}@media(max-width:760px){.grid{grid-template-columns:1fr}.head{align-items:flex-start;flex-direction:column}}
-</style></head><body><main>
-<div class="head"><div><h1>LED Diffuser Studio</h1><div class="sub">Ambient motion, tiny pixels, direct Bluetooth.</div></div><div id="status" class="status">Not connected</div></div>
-<div class="grid"><section class="card"><canvas id="preview" width="560" height="200"></canvas><p class="note">The preview approximates the 28 x 10 diffuser. The ESP32 renders the final animation.</p><div class="actions"><button id="connect">Connect Bluetooth</button><button id="disconnect" class="secondary" disabled>Disconnect</button></div><p id="message" class="note">Use Chrome or Edge on desktop or Android. Bluetooth pairing must be started by this button.</p></section>
-<section class="card"><div class="controls"><label>Mode<select id="mode"><option value="aura">Aura</option><option value="rain">Rain</option><option value="text">Scrolling text</option><option value="tilt">Motion orb</option></select></label><label>Direction<select id="direction"><option>left</option><option>right</option><option>up</option><option>down</option></select></label><label class="wide">Text<input id="text" maxlength="32" value="VIBE"></label><label>Brightness <span id="brightnessValue">35</span><input id="brightness" type="range" min="1" max="160" value="35"></label><label>Speed <span id="speedValue">100</span> ms<input id="speed" type="range" min="35" max="1000" value="100"></label><label>Hue<input id="hue" type="range" min="0" max="255" value="180"></label><label>Saturation<input id="saturation" type="range" min="0" max="255" value="210"></label><label class="wide"><input id="motion" type="checkbox" checked style="width:auto"> Use MPU6050 motion</label></div><div class="actions"><button id="send" disabled>Send to diffuser</button><button id="random" class="secondary">New vibe</button></div><details><summary>AI prompt starter</summary><textarea id="aiPrompt" rows="7">Create a calm ambient LED animation for a 28x10 pixel diffuser. Prefer gradients, rhythm, and abstract motion over literal images. Return one compact JSON object using only: mode (aura, rain, text, tilt), text, direction, brightness (1-160), speed (35-1000), hue (0-255), saturation (0-255), and motion (boolean).</textarea><button id="copyPrompt" class="secondary">Copy prompt</button></details></section></div>
-<details class="card"><summary>How this connection works</summary><ol><li>The GitHub Pages site is delivered over HTTPS.</li><li>Your browser asks you to choose the nearby device named <code>LED-Diffuser</code>.</li><li>The site connects to its BLE UART service.</li><li>Pressing “Send” writes a compact JSON command in small BLE packets.</li><li>The ESP32 renders the animation locally, so the page can disconnect afterward.</li></ol><p class="note">Web Bluetooth is not available in every browser. iPhone/iPad Safari does not provide this API; use Chrome/Edge on a computer or compatible Android browser. Bluetooth also requires this repository's firmware to be flashed first.</p></details>
-</main><script>
-const SERVICE="6e400001-b5a3-f393-e0a9-e50e24dcca9e",RX="6e400002-b5a3-f393-e0a9-e50e24dcca9e",TX="6e400003-b5a3-f393-e0a9-e50e24dcca9e";let device,rx,tx,connected=false,phase=0;const $=id=>document.getElementById(id),controls=["mode","direction","text","brightness","speed","hue","saturation","motion"];
-function setStatus(text,on=false,error=false){$("status").textContent=text;$("status").className="status"+(on?" on":"");$("message").textContent=text;$("message").className=error?"error":"note"}function state(){return{mode:$("mode").value,direction:$("direction").value,text:$("text").value,brightness:+$("brightness").value,speed:+$("speed").value,hue:+$("hue").value,saturation:+$("saturation").value,motion:$("motion").checked}}
-async function connect(){if(!navigator.bluetooth){setStatus("Web Bluetooth is unavailable in this browser.",false,true);return}try{setStatus("Choose LED-Diffuser in the browser prompt...");device=await navigator.bluetooth.requestDevice({filters:[{name:"LED-Diffuser"}],optionalServices:[SERVICE]});device.addEventListener("gattserverdisconnected",()=>setConnected(false));const server=await device.gatt.connect(),service=await server.getPrimaryService(SERVICE);rx=await service.getCharacteristic(RX);tx=await service.getCharacteristic(TX);await tx.startNotifications();tx.addEventListener("characteristicvaluechanged",e=>setStatus(new TextDecoder().decode(e.target.value),true));setConnected(true)}catch(e){setStatus(e.message||String(e),false,true)}}function setConnected(value){connected=value;$("connect").disabled=value;$("disconnect").disabled=!value;$("send").disabled=!value;setStatus(value?"Connected to "+(device?.name||"diffuser"):"Not connected",value)}
-async function send(){if(!rx)return;const bytes=new TextEncoder().encode(JSON.stringify(state())+"\n");try{for(let i=0;i<bytes.length;i+=18)await rx.writeValueWithoutResponse(bytes.slice(i,i+18));setStatus("Vibe sent",true)}catch(e){setStatus(e.message||String(e),false,true)}}function hsv(h,s,v){let f=(n,k=(n+h*6)%6)=>v-v*s*Math.max(Math.min(k,4-k,1),0);return[f(5),f(3),f(1)]}
-function render(){const c=$("preview"),x=c.getContext("2d"),s=state(),cw=c.width/28,ch=c.height/10,t=phase++/30;x.fillStyle="#030408";x.fillRect(0,0,c.width,c.height);for(let py=0;py<10;py++)for(let px=0;px<28;px++){let val=.05;if(s.mode==="aura")val=.25+.2*(Math.sin(px*.25+t)+Math.cos(py*.6-t*.7)+2)/2;if(s.mode==="rain")val=((Math.floor(t*3)+px*7)%15===py)?1:.06;if(s.mode==="tilt"){let dx=px-(14+Math.sin(t)*8),dy=py-(5+Math.cos(t*.7)*3);val=Math.max(.04,1-Math.hypot(dx,dy)/8)}if(s.mode==="text")val=((px+Math.floor(t*3))%9<2&&py>1&&py<8)?.85:.03;const rgb=hsv(s.hue/255,s.saturation/255,val);x.fillStyle="rgb("+(rgb[0]*255)+","+(rgb[1]*255)+","+(rgb[2]*255)+")";x.fillRect(px*cw+1,py*ch+1,cw-2,ch-2)}requestAnimationFrame(render)}
-$("connect").onclick=connect;$("disconnect").onclick=()=>device?.gatt?.disconnect();$("send").onclick=send;$("random").onclick=()=>{$("mode").value=["aura","rain","text","tilt"][Math.floor(Math.random()*4)];$("hue").value=Math.floor(Math.random()*256);$("speed").value=60+Math.floor(Math.random()*300);sync()};$("copyPrompt").onclick=async()=>{await navigator.clipboard.writeText($("aiPrompt").value);$("copyPrompt").textContent="Copied"};function sync(){$("brightnessValue").textContent=$("brightness").value;$("speedValue").textContent=$("speed").value}controls.forEach(id=>$(id).addEventListener("input",sync));sync();render();
-</script></body></html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10131b">
+<title>LED Diffuser Studio</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body><main>
+<div class="head">
+  <div><h1>LED Diffuser Studio</h1><div class="sub">Design on the phone. Animate on the wall.</div></div>
+  <div id="status" class="status">Not connected</div>
+</div>
+<div class="layout">
+<aside class="card sidebar">
+  <div><h2>Bluetooth</h2>
+    <button id="connect" class="primary">Connect LED-Diffuser</button>
+    <button id="disconnect" disabled>Disconnect</button>
+    <p id="message" class="note">Chrome/Edge desktop or compatible Android browser.</p>
+    <div class="progress"><span id="progress"></span></div>
+  </div>
+  <div class="section"><h2>Paint tools</h2>
+    <div class="two"><button data-tool="brush" class="active">Brush</button><button data-tool="erase">Erase</button><button data-tool="fill">Fill</button><button id="clear">Clear</button></div>
+    <label>Color<input id="color" type="color" value="#38d9d6"></label>
+    <div id="palette" class="palette"></div>
+    <div class="two"><button id="mirrorX">Mirror</button><button id="mirrorY">Flip</button><button id="shiftL">← Shift</button><button id="shiftR">Shift →</button></div>
+  </div>
+  <div class="section"><h2>Quick visuals</h2>
+    <div class="two"><button data-preset="gradient">Gradient</button><button data-preset="rainbow">Rainbow</button><button data-preset="heart">Heart</button><button data-preset="stars">Stars</button><button data-preset="waves">Waves</button><button data-preset="plasma">Plasma</button></div>
+  </div>
+</aside>
+<section class="card stage">
+  <div class="tabs"><button class="tab active" data-pane="editor">Pixel show</button><button class="tab" data-pane="vibes">Live vibes</button></div>
+  <div id="editor" class="pane">
+    <div id="matrix" class="matrix"></div>
+    <div class="section"><div class="frames" id="frames"></div>
+      <div class="two"><button id="addFrame">Add frame</button><button id="cloneFrame">Duplicate</button><button id="deleteFrame" class="danger">Delete</button><button id="moveFrame">Move right</button></div>
+      <label>Frame interval: <span id="frameMsValue">250</span> ms<input id="frameMs" type="range" min="50" max="2000" step="25" value="250"></label>
+      <div class="two"><button id="sendFrame" disabled>Show this frame</button><button id="uploadShow" class="primary" disabled>Upload show</button></div>
+      <p class="note">Up to 8 frames. Once uploaded, the ESP32 loops and saves them without needing this page open.</p>
+    </div>
+  </div>
+  <div id="vibes" class="pane" hidden><div class="two">
+    <label>Mode<select id="mode"><option value="aura">Aura</option><option value="rain">Rain</option><option value="text">Scrolling text</option><option value="tilt">Motion orb</option></select></label>
+    <label>Direction<select id="direction"><option>left</option><option>right</option><option>up</option><option>down</option></select></label>
+    <label class="wide">Text<input id="text" maxlength="32" value="VIBE"></label>
+    <label>Brightness <span id="brightnessValue">35</span><input id="brightness" type="range" min="1" max="160" value="35"></label>
+    <label>Speed <span id="speedValue">100</span> ms<input id="speed" type="range" min="35" max="1000" value="100"></label>
+    <label>Hue<input id="hue" type="range" min="0" max="255" value="180"></label>
+    <label>Saturation<input id="saturation" type="range" min="0" max="255" value="210"></label>
+    <label class="wide"><input id="motion" type="checkbox" checked style="width:auto"> Use MPU6050 motion</label>
+  </div><button id="sendVibe" class="primary" disabled>Send live vibe</button></div>
+</section>
+<aside class="card right"><h2>Project</h2>
+  <label>Project name<input id="projectName" value="My wall show"></label>
+  <div class="two"><button id="newProject">New</button><button id="saveLocal">Save here</button><button id="exportProject">Export</button><button id="importProject">Import</button></div>
+  <textarea id="projectJson" placeholder="Project JSON"></textarea>
+  <details><summary>AI prompt starter</summary><textarea id="aiPrompt">Create an abstract ambient animation for a 28x10 LED diffuser. Return JSON with a frames array. Each frame is a 10-row array; every row has 28 CSS hex colors. Use at most 8 frames. Prefer gradients, glow, weather, waves, and rhythm over detailed pictures or long writing.</textarea><button id="copyPrompt">Copy prompt</button></details>
+  <details><summary>Connection details</summary><p class="note">The page sends JSON directly to the nearby ESP32 over BLE. Pairing requires a button press. GitHub never receives your display commands.</p></details>
+</aside>
+</div>
+<script src="app.js"></script>
+</main></body></html>
