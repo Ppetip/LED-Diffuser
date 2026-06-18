@@ -68,8 +68,12 @@
   </select></label>
   <textarea id="projectJson" placeholder="Paste Show Compiler JSON here..."></textarea>
   <details><summary>AI prompt starter</summary><textarea id="aiPrompt">Create an abstract ambient animation for a 28x10 LED diffuser. Return JSON with name, frameMs, frameCount (up to 24), and a layers array. Each layer has type (gradient, radial_gradient, rainbow, plasma, rain, snow, starfield, waves, fire, shapes, text, cellular_automata, particles, street_scene, dial, letter_fill, clock, pacman, glitch, fireworks, sand, dna, kaleidoscope, radar, tunnel, ripple, equalizer, heartbeat, lighthouse, sunset, strobe), opacity (0-1), blend (normal, add, screen, multiply, overlay, mask, letter_fill) and params. Return clean JSON only.</textarea><button id="copyPrompt">Copy prompt</button></details>
+  <details open><summary>Device / upload log</summary>
+    <pre id="transportLog" class="transport-log" aria-live="polite">Waiting for device messages...\n</pre>
+    <button id="clearTransportLog" type="button">Clear log</button>
+  </details>
   <details><summary>Connection details</summary><p class="note">The page sends the same JSON directly over BLE or USB serial. Pairing and serial-port selection require a button press. GitHub never receives your display commands.</p></details>
 </aside>
 </div>
-<script src="app.js?v=mobile4"></script>
+<script src="app.js?v=stream1"></script>
 </main></body></html>
