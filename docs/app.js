@@ -202,13 +202,26 @@ async function uploadShow(){
       const startPercent=(index+1)*100/totalSteps;
       const endPercent=(index+2)*100/totalSteps;
       setStatus(`Uploading frame ${index+1} of ${project.frames.length}...`);
-      const reply=await sendCommand({
-        op:"show_frame",
-        index,
-        pixels:pixelsHex(project.frames[index])
-      },startPercent,endPercent,20000);
-      if(reply.i!==index)throw Error(`Wrong acknowledgement for frame ${index+1}`);
+      let reply,lastError;
+      for(let attempt=1;attempt<=3;attempt++){
+        try{
+          reply=await sendCommand({
+            op:"show_frame",
+            index,
+            pixels:pixelsHex(project.frames[index])
+          },startPercent,endPercent,20000);
+          if(reply.i!==index)throw Error(`Wrong acknowledgement for frame ${index+1}`);
+          lastError=null;
+          break;
+        }catch(error){
+          lastError=error;
+          appendTransportLog(`Frame ${index+1} attempt ${attempt} failed: ${error.message}`,"error");
+          if(attempt<3)await new Promise(resolve=>setTimeout(resolve,150));
+        }
+      }
+      if(lastError)throw Error(`Frame ${index+1} failed after 3 attempts: ${lastError.message}`);
       setStatus(`Frame ${index+1}/${project.frames.length} confirmed`,true);
+      await new Promise(resolve=>setTimeout(resolve,25));
     }
     setStatus("Committing show...");
     const committed=await sendCommand({op:"show_commit"},(totalSteps-1)*100/totalSteps,100,20000);
