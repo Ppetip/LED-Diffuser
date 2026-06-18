@@ -33,7 +33,7 @@ WebServer server(80);
 NimBLECharacteristic *txCharacteristic = nullptr;
 Preferences preferences;
 
-struct State {
+struct DeviceState {
   String mode = "aura";
   String text = "VIBE";
   String direction = "left";
@@ -43,7 +43,7 @@ struct State {
   uint8_t hue = 180;
   uint8_t saturation = 210;
   bool motion = true;
-} state;
+} deviceState;
 
 bool mpuReady = false;
 float tiltX = 0, tiltY = 0;
@@ -55,17 +55,28 @@ String showFrames[MAX_SHOW_FRAMES];
 uint8_t showCount = 0;
 uint16_t showFrameMs = 250;
 
+uint8_t hexNibble(char c) {
+  if (c >= '0' && c <= '9') return c - '0';
+  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+  return 0;
+}
+
+uint8_t hexByte(const String &value, uint16_t offset) {
+  return (hexNibble(value[offset]) << 4) | hexNibble(value[offset + 1]);
+}
+
 void loadState() {
   preferences.begin("leddiff", false);
-  state.mode = preferences.getString("mode", state.mode);
-  state.text = preferences.getString("text", state.text);
-  state.direction = preferences.getString("direction", state.direction);
-  state.font = preferences.getString("font", state.font);
-  state.brightness = preferences.getUChar("brightness", state.brightness);
-  state.speed = preferences.getUShort("speed", state.speed);
-  state.hue = preferences.getUChar("hue", state.hue);
-  state.saturation = preferences.getUChar("saturation", state.saturation);
-  state.motion = preferences.getBool("motion", state.motion);
+  deviceState.mode = preferences.getString("mode", deviceState.mode);
+  deviceState.text = preferences.getString("text", deviceState.text);
+  deviceState.direction = preferences.getString("direction", deviceState.direction);
+  deviceState.font = preferences.getString("font", deviceState.font);
+  deviceState.brightness = preferences.getUChar("brightness", deviceState.brightness);
+  deviceState.speed = preferences.getUShort("speed", deviceState.speed);
+  deviceState.hue = preferences.getUChar("hue", deviceState.hue);
+  deviceState.saturation = preferences.getUChar("saturation", deviceState.saturation);
+  deviceState.motion = preferences.getBool("motion", deviceState.motion);
   showCount = min(preferences.getUChar("showCount", 0), (uint8_t)MAX_SHOW_FRAMES);
   showFrameMs = preferences.getUShort("frameMs", showFrameMs);
   for (uint8_t i = 0; i < showCount; i++) {
@@ -87,15 +98,15 @@ void loadState() {
 }
 
 void saveState() {
-  preferences.putString("mode", state.mode);
-  preferences.putString("text", state.text);
-  preferences.putString("direction", state.direction);
-  preferences.putString("font", state.font);
-  preferences.putUChar("brightness", state.brightness);
-  preferences.putUShort("speed", state.speed);
-  preferences.putUChar("hue", state.hue);
-  preferences.putUChar("saturation", state.saturation);
-  preferences.putBool("motion", state.motion);
+  preferences.putString("mode", deviceState.mode);
+  preferences.putString("text", deviceState.text);
+  preferences.putString("direction", deviceState.direction);
+  preferences.putString("font", deviceState.font);
+  preferences.putUChar("brightness", deviceState.brightness);
+  preferences.putUShort("speed", deviceState.speed);
+  preferences.putUChar("hue", deviceState.hue);
+  preferences.putUChar("saturation", deviceState.saturation);
+  preferences.putBool("motion", deviceState.motion);
   preferences.putUChar("showCount", showCount);
   preferences.putUShort("frameMs", showFrameMs);
   for (uint8_t i = 0; i < showCount; i++) {
@@ -125,17 +136,6 @@ void setPixel(int x, int y, CRGB color) {
   }
 }
 
-uint8_t hexNibble(char c) {
-  if (c >= '0' && c <= '9') return c - '0';
-  if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-  if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-  return 0;
-}
-
-uint8_t hexByte(const String &value, uint16_t offset) {
-  return (hexNibble(value[offset]) << 4) | hexNibble(value[offset + 1]);
-}
-
 void renderPixelFrame(const String &pixels) {
   if (pixels.length() != PIXEL_HEX_LENGTH) return;
   for (uint8_t y = 0; y < VIEW_H; y++) {
@@ -151,7 +151,7 @@ void renderShow(uint32_t now) {
     fill_solid(leds, NUM_LEDS, CRGB::Black);
     return;
   }
-  uint8_t index = state.mode == "custom" ? 0 : (now / max((uint16_t)50, showFrameMs)) % showCount;
+  uint8_t index = deviceState.mode == "custom" ? 0 : (now / max((uint16_t)50, showFrameMs)) % showCount;
   renderPixelFrame(showFrames[index]);
 }
 
@@ -163,7 +163,7 @@ bool startMpu() {
 }
 
 void readMpu() {
-  if (!mpuReady || !state.motion) return;
+  if (!mpuReady || !deviceState.motion) return;
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x3B);
   if (Wire.endTransmission(false) != 0) return;
@@ -176,23 +176,23 @@ void readMpu() {
 }
 
 void renderAura(uint32_t now) {
-  float phase = now / max(250.0f, state.speed * 8.0f);
+  float phase = now / max(250.0f, deviceState.speed * 8.0f);
   for (uint8_t y = 0; y < VIEW_H; y++) {
     for (uint8_t x = 0; x < VIEW_W; x++) {
       float wave = sinf(x * .24f + phase) + cosf(y * .55f - phase * .8f);
       uint8_t value = 25 + uint8_t((wave + 2.0f) * 45.0f);
-      setPixel(x, y, CHSV(state.hue + x * 2 + y * 3, state.saturation, value));
+      setPixel(x, y, CHSV(deviceState.hue + x * 2 + y * 3, deviceState.saturation, value));
     }
   }
 }
 
 void renderRain(uint32_t now) {
   fadeToBlackBy(leds, NUM_LEDS, 48);
-  uint16_t tick = now / max((uint16_t)35, state.speed);
+  uint16_t tick = now / max((uint16_t)35, deviceState.speed);
   for (uint8_t x = 0; x < VIEW_W; x++) {
     uint8_t y = (tick + x * 7 + (x * x)) % (VIEW_H + 5);
-    if (y < VIEW_H) setPixel(x, y, CHSV(state.hue + x * 3, state.saturation, 220));
-    if (y > 0 && y - 1 < VIEW_H) setPixel(x, y - 1, CHSV(state.hue, state.saturation, 75));
+    if (y < VIEW_H) setPixel(x, y, CHSV(deviceState.hue + x * 3, deviceState.saturation, 220));
+    if (y > 0 && y - 1 < VIEW_H) setPixel(x, y - 1, CHSV(deviceState.hue, deviceState.saturation, 75));
   }
 }
 
@@ -235,7 +235,7 @@ const uint8_t FONT_BOLD[][6] = {
 };
 
 void drawChar(char c, int x0, int y0, CRGB color) {
-  if (state.font == "bold") {
+  if (deviceState.font == "bold") {
     int idx = -1;
     if (c >= 'A' && c <= 'Z') idx = c - 'A';
     else if (c >= '0' && c <= '9') idx = 26 + (c - '0');
@@ -261,8 +261,8 @@ void drawChar(char c, int x0, int y0, CRGB color) {
 
 void renderText(uint32_t now) {
   fill_solid(leds, NUM_LEDS, CRGB::Black);
-  bool vertical = state.direction == "up" || state.direction == "down";
-  bool isBold = state.font == "bold";
+  bool vertical = deviceState.direction == "up" || deviceState.direction == "down";
+  bool isBold = deviceState.font == "bold";
   int charW = isBold ? 6 : 5;
   int charH = isBold ? 8 : 7;
   int charSpacing = isBold ? 7 : 6;
@@ -270,29 +270,29 @@ void renderText(uint32_t now) {
 
   if (vertical) {
     int charsPerLine = 4;
-    int lines = (state.text.length() + charsPerLine - 1) / charsPerLine;
+    int lines = (deviceState.text.length() + charsPerLine - 1) / charsPerLine;
     int totalHeight = lines * lineHeight;
     int cycle = VIEW_H + totalHeight;
-    int step = (now / max((uint16_t)40, state.speed)) % max(1, cycle);
-    int baseY = state.direction == "down" ? -totalHeight + step : VIEW_H - step;
+    int step = (now / max((uint16_t)40, deviceState.speed)) % max(1, cycle);
+    int baseY = deviceState.direction == "down" ? -totalHeight + step : VIEW_H - step;
 
-    for (uint16_t i = 0; i < state.text.length(); i++) {
-      char c = toupper(state.text[i]);
+    for (uint16_t i = 0; i < deviceState.text.length(); i++) {
+      char c = toupper(deviceState.text[i]);
       int x = 1 + (i % charsPerLine) * charSpacing;
       int y = baseY + (i / charsPerLine) * lineHeight;
-      drawChar(c, x, y, CHSV(state.hue + i * 8, state.saturation, 255));
+      drawChar(c, x, y, CHSV(deviceState.hue + i * 8, deviceState.saturation, 255));
     }
   } else {
-    int width = state.text.length() * charSpacing;
+    int width = deviceState.text.length() * charSpacing;
     int cycle = VIEW_W + width;
-    int step = (now / max((uint16_t)40, state.speed)) % max(1, cycle);
-    int baseX = state.direction == "right" ? -width + step : VIEW_W - step;
+    int step = (now / max((uint16_t)40, deviceState.speed)) % max(1, cycle);
+    int baseX = deviceState.direction == "right" ? -width + step : VIEW_W - step;
     int baseY = (VIEW_H - charH) / 2;
 
-    for (uint16_t i = 0; i < state.text.length(); i++) {
-      char c = toupper(state.text[i]);
+    for (uint16_t i = 0; i < deviceState.text.length(); i++) {
+      char c = toupper(deviceState.text[i]);
       int x = baseX + i * charSpacing;
-      drawChar(c, x, baseY, CHSV(state.hue + i * 8, state.saturation, 255));
+      drawChar(c, x, baseY, CHSV(deviceState.hue + i * 8, deviceState.saturation, 255));
     }
   }
 }
@@ -304,18 +304,18 @@ void renderTilt(uint32_t now) {
   for (int y = 0; y < VIEW_H; y++) {
     for (int x = 0; x < VIEW_W; x++) {
       float d = sqrtf((x-cx)*(x-cx) + (y-cy)*(y-cy));
-      if (d < 6) setPixel(x, y, CHSV(state.hue + d * 8 + now / 35, state.saturation, 255 - d * 38));
+      if (d < 6) setPixel(x, y, CHSV(deviceState.hue + d * 8 + now / 35, deviceState.saturation, 255 - d * 38));
     }
   }
 }
 
 String stateJson() {
   JsonDocument doc;
-  doc["mode"] = state.mode; doc["text"] = state.text;
-  doc["direction"] = state.direction; doc["font"] = state.font;
-  doc["brightness"] = state.brightness;
-  doc["speed"] = state.speed; doc["hue"] = state.hue;
-  doc["saturation"] = state.saturation; doc["motion"] = state.motion;
+  doc["mode"] = deviceState.mode; doc["text"] = deviceState.text;
+  doc["direction"] = deviceState.direction; doc["font"] = deviceState.font;
+  doc["brightness"] = deviceState.brightness;
+  doc["speed"] = deviceState.speed; doc["hue"] = deviceState.hue;
+  doc["saturation"] = deviceState.saturation; doc["motion"] = deviceState.motion;
   doc["mpu"] = mpuReady; doc["ip"] = WiFi.softAPIP().toString();
   doc["showCount"] = showCount; doc["frameMs"] = showFrameMs;
   String out; serializeJson(doc, out); return out;
@@ -325,15 +325,15 @@ bool applyCommand(const String &json, String &reply) {
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, json);
   if (error) { reply = "{\"ok\":false,\"error\":\"invalid json\"}"; return false; }
-  if (doc["mode"].is<const char*>()) state.mode = String(doc["mode"].as<const char*>());
-  if (doc["text"].is<const char*>()) state.text = String(doc["text"].as<const char*>()).substring(0, 32);
-  if (doc["direction"].is<const char*>()) state.direction = String(doc["direction"].as<const char*>());
-  if (doc["font"].is<const char*>()) state.font = String(doc["font"].as<const char*>());
-  if (doc["brightness"].is<int>()) state.brightness = constrain(doc["brightness"].as<int>(), 1, 160);
-  if (doc["speed"].is<int>()) state.speed = constrain(doc["speed"].as<int>(), 35, 2000);
-  if (doc["hue"].is<int>()) state.hue = doc["hue"].as<int>();
-  if (doc["saturation"].is<int>()) state.saturation = constrain(doc["saturation"].as<int>(), 0, 255);
-  if (doc["motion"].is<bool>()) state.motion = doc["motion"].as<bool>();
+  if (doc["mode"].is<const char*>()) deviceState.mode = String(doc["mode"].as<const char*>());
+  if (doc["text"].is<const char*>()) deviceState.text = String(doc["text"].as<const char*>()).substring(0, 32);
+  if (doc["direction"].is<const char*>()) deviceState.direction = String(doc["direction"].as<const char*>());
+  if (doc["font"].is<const char*>()) deviceState.font = String(doc["font"].as<const char*>());
+  if (doc["brightness"].is<int>()) deviceState.brightness = constrain(doc["brightness"].as<int>(), 1, 160);
+  if (doc["speed"].is<int>()) deviceState.speed = constrain(doc["speed"].as<int>(), 35, 2000);
+  if (doc["hue"].is<int>()) deviceState.hue = doc["hue"].as<int>();
+  if (doc["saturation"].is<int>()) deviceState.saturation = constrain(doc["saturation"].as<int>(), 0, 255);
+  if (doc["motion"].is<bool>()) deviceState.motion = doc["motion"].as<bool>();
   if (doc["frameMs"].is<int>()) showFrameMs = constrain(doc["frameMs"].as<int>(), 50, 5000);
 
   if (doc["pixels"].is<const char*>()) {
@@ -344,7 +344,7 @@ bool applyCommand(const String &json, String &reply) {
     }
     showFrames[0] = pixels;
     showCount = 1;
-    state.mode = "custom";
+    deviceState.mode = "custom";
   }
 
   JsonArray frames = doc["frames"].as<JsonArray>();
@@ -362,10 +362,10 @@ bool applyCommand(const String &json, String &reply) {
       }
     }
     showCount = nextCount;
-    state.mode = "show";
+    deviceState.mode = "show";
   }
 
-  FastLED.setBrightness(state.brightness);
+  FastLED.setBrightness(deviceState.brightness);
   saveState();
   reply = "{\"ok\":true,\"state\":" + stateJson() + "}";
   if (txCharacteristic) { txCharacteristic->setValue(reply.c_str()); txCharacteristic->notify(); }
@@ -430,8 +430,8 @@ button{background:#67e8f9;color:#082f49;font-weight:700;cursor:pointer}textarea{
 <button onclick="navigator.clipboard.writeText(prompt.value)">Copy AI prompt</button><pre id=status></pre></main>
 <script>
 const ids=["mode","direction","font","text","brightness","speed","hue","saturation","motion"];
-async function send(){let o={};ids.forEach(k=>o[k]=k==="motion"?window[k].checked:(["brightness","speed","hue","saturation"].includes(k)?+window[k].value:window[k].value));let r=await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)});status.textContent=await r.text()}
-async function sendJson(){let r=await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:jsonConsole.value});status.textContent=await r.text()}
+const send=()=>{let o={};ids.forEach(k=>o[k]=k==="motion"?window[k].checked:(["brightness","speed","hue","saturation"].includes(k)?+window[k].value:window[k].value));fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)}).then(r=>r.text()).then(t=>status.textContent=t)};
+const sendJson=()=>{fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:jsonConsole.value}).then(r=>r.text()).then(t=>status.textContent=t)};
 fetch("/api/state").then(r=>r.json()).then(s=>{ids.forEach(k=>{if(s[k]!==undefined)(k==="motion"?window[k].checked=s[k]:window[k].value=s[k])});status.textContent=JSON.stringify(s,null,2)})
 </script>)HTML";
 
@@ -470,7 +470,7 @@ void setup() {
   Serial.begin(115200);
   loadState();
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
-  FastLED.setBrightness(state.brightness);
+  FastLED.setBrightness(deviceState.brightness);
   FastLED.clear(true);
   Wire.begin(SDA_PIN, SCL_PIN);
   mpuReady = startMpu();
@@ -488,10 +488,10 @@ void loop() {
   uint32_t now = millis();
   if (now - lastFrame < 33) return;
   lastFrame = now;
-  if (state.mode == "custom" || state.mode == "show") renderShow(now);
-  else if (state.mode == "rain") renderRain(now);
-  else if (state.mode == "text") renderText(now);
-  else if (state.mode == "tilt") renderTilt(now);
+  if (deviceState.mode == "custom" || deviceState.mode == "show") renderShow(now);
+  else if (deviceState.mode == "rain") renderRain(now);
+  else if (deviceState.mode == "text") renderText(now);
+  else if (deviceState.mode == "tilt") renderTilt(now);
   else renderAura(now);
   FastLED.show();
 }
