@@ -6,6 +6,7 @@
 #include <NimBLEDevice.h>
 #include <Wire.h>
 #include <Preferences.h>
+#include <LittleFS.h>
 
 #define LED_PIN 3
 #define LED_TYPE WS2812B
@@ -55,6 +56,16 @@ String showFrames[MAX_SHOW_FRAMES];
 uint8_t showCount = 0;
 uint16_t showFrameMs = 250;
 uint32_t lastDataRxTime = 0;
+File showUploadFile;
+uint8_t uploadExpected = 0;
+uint8_t uploadReceived = 0;
+uint16_t uploadFrameMs = 250;
+bool uploadActive = false;
+bool bleDroppingOversize = false;
+bool serialDroppingOversize = false;
+const char *SHOW_FILE = "/show.bin";
+const char *SHOW_TEMP_FILE = "/show.tmp";
+const char *SHOW_BACKUP_FILE = "/show.bak";
 
 uint8_t hexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -65,6 +76,106 @@ uint8_t hexNibble(char c) {
 
 uint8_t hexByte(const String &value, uint16_t offset) {
   return (hexNibble(value[offset]) << 4) | hexNibble(value[offset + 1]);
+}
+
+bool frameToBinary(const String &pixels, uint8_t *binary) {
+  if (pixels.length() != PIXEL_HEX_LENGTH) return false;
+  for (uint16_t i = 0; i < NUM_LEDS; i++) {
+    uint16_t offset = i * 6;
+    for (uint8_t j = 0; j < 6; j++) {
+      if (!isHexadecimalDigit(pixels[offset + j])) return false;
+    }
+    binary[i * 3] = hexByte(pixels, offset);
+    binary[i * 3 + 1] = hexByte(pixels, offset + 2);
+    binary[i * 3 + 2] = hexByte(pixels, offset + 4);
+  }
+  return true;
+}
+
+String binaryToFrame(const uint8_t *binary) {
+  static const char HEX_DIGITS[] = "0123456789abcdef";
+  String pixels;
+  pixels.reserve(PIXEL_HEX_LENGTH);
+  for (uint16_t i = 0; i < FRAME_BINARY_SIZE; i++) {
+    pixels += HEX_DIGITS[binary[i] >> 4];
+    pixels += HEX_DIGITS[binary[i] & 0x0f];
+  }
+  return pixels;
+}
+
+void writeShowHeader(File &file, uint8_t count, uint16_t frameMs) {
+  file.write((const uint8_t *)"LDS1", 4);
+  file.write(count);
+  file.write((uint8_t)(frameMs & 0xff));
+  file.write((uint8_t)(frameMs >> 8));
+}
+
+bool activateTempShow() {
+  if (LittleFS.exists(SHOW_BACKUP_FILE)) LittleFS.remove(SHOW_BACKUP_FILE);
+  if (LittleFS.exists(SHOW_FILE) && !LittleFS.rename(SHOW_FILE, SHOW_BACKUP_FILE)) {
+    Serial.println("[SHOW][ERROR] Could not preserve current show");
+    return false;
+  }
+  if (!LittleFS.rename(SHOW_TEMP_FILE, SHOW_FILE)) {
+    Serial.println("[SHOW][ERROR] Could not activate uploaded show");
+    if (LittleFS.exists(SHOW_BACKUP_FILE)) LittleFS.rename(SHOW_BACKUP_FILE, SHOW_FILE);
+    return false;
+  }
+  if (LittleFS.exists(SHOW_BACKUP_FILE)) LittleFS.remove(SHOW_BACKUP_FILE);
+  return true;
+}
+
+bool saveShowFile() {
+  LittleFS.remove(SHOW_TEMP_FILE);
+  File file = LittleFS.open(SHOW_TEMP_FILE, "w");
+  if (!file) return false;
+  writeShowHeader(file, showCount, showFrameMs);
+  uint8_t binary[FRAME_BINARY_SIZE];
+  for (uint8_t i = 0; i < showCount; i++) {
+    if (!frameToBinary(showFrames[i], binary) || file.write(binary, FRAME_BINARY_SIZE) != FRAME_BINARY_SIZE) {
+      file.close();
+      LittleFS.remove(SHOW_TEMP_FILE);
+      return false;
+    }
+  }
+  file.flush();
+  file.close();
+  return activateTempShow();
+}
+
+bool loadShowFile() {
+  if (!LittleFS.exists(SHOW_FILE) && LittleFS.exists(SHOW_BACKUP_FILE)) {
+    LittleFS.rename(SHOW_BACKUP_FILE, SHOW_FILE);
+  }
+  File file = LittleFS.open(SHOW_FILE, "r");
+  if (!file) return false;
+  char magic[4];
+  if (file.readBytes(magic, 4) != 4 || memcmp(magic, "LDS1", 4) != 0) {
+    file.close();
+    return false;
+  }
+  int countValue = file.read();
+  int frameLo = file.read();
+  int frameHi = file.read();
+  if (countValue < 1 || countValue > MAX_SHOW_FRAMES || frameLo < 0 || frameHi < 0) {
+    file.close();
+    return false;
+  }
+  uint8_t count = (uint8_t)countValue;
+  uint8_t binary[FRAME_BINARY_SIZE];
+  for (uint8_t i = 0; i < count; i++) {
+    if (file.read(binary, FRAME_BINARY_SIZE) != FRAME_BINARY_SIZE) {
+      file.close();
+      showCount = 0;
+      return false;
+    }
+    showFrames[i] = binaryToFrame(binary);
+  }
+  file.close();
+  showCount = count;
+  showFrameMs = constrain((uint16_t)(frameLo | (frameHi << 8)), (uint16_t)50, (uint16_t)5000);
+  Serial.printf("[SHOW] Loaded %u frames from LittleFS, %lu bytes free heap\n", showCount, ESP.getFreeHeap());
+  return true;
 }
 
 void loadState() {
@@ -78,23 +189,10 @@ void loadState() {
   deviceState.hue = preferences.getUChar("hue", deviceState.hue);
   deviceState.saturation = preferences.getUChar("saturation", deviceState.saturation);
   deviceState.motion = preferences.getBool("motion", deviceState.motion);
-  showCount = min(preferences.getUChar("showCount", 0), (uint8_t)MAX_SHOW_FRAMES);
   showFrameMs = preferences.getUShort("frameMs", showFrameMs);
-  for (uint8_t i = 0; i < showCount; i++) {
-    String key = "frame" + String(i);
-    uint8_t bin[FRAME_BINARY_SIZE];
-    size_t len = preferences.getBytes(key.c_str(), bin, FRAME_BINARY_SIZE);
-    if (len == FRAME_BINARY_SIZE) {
-      char hex[PIXEL_HEX_LENGTH + 1];
-      for (uint16_t j = 0; j < NUM_LEDS; j++) {
-        sprintf(&hex[j * 6], "%02x%02x%02x", bin[j * 3], bin[j * 3 + 1], bin[j * 3 + 2]);
-      }
-      hex[PIXEL_HEX_LENGTH] = '\0';
-      showFrames[i] = String(hex);
-    } else {
-      showCount = i;
-      break;
-    }
+  if (!loadShowFile()) {
+    showCount = 0;
+    Serial.println("[SHOW] No valid saved LittleFS show; starting without a playlist");
   }
 }
 
@@ -110,17 +208,6 @@ void saveState() {
   preferences.putBool("motion", deviceState.motion);
   preferences.putUChar("showCount", showCount);
   preferences.putUShort("frameMs", showFrameMs);
-  for (uint8_t i = 0; i < showCount; i++) {
-    String key = "frame" + String(i);
-    uint8_t bin[FRAME_BINARY_SIZE];
-    for (uint16_t j = 0; j < NUM_LEDS; j++) {
-      uint16_t offset = j * 6;
-      bin[j * 3] = hexByte(showFrames[i], offset);
-      bin[j * 3 + 1] = hexByte(showFrames[i], offset + 2);
-      bin[j * 3 + 2] = hexByte(showFrames[i], offset + 4);
-    }
-    preferences.putBytes(key.c_str(), bin, FRAME_BINARY_SIZE);
-  }
 }
 
 uint16_t ledIndex(uint8_t x, uint8_t y) {
@@ -323,9 +410,106 @@ String stateJson() {
 }
 
 bool applyCommand(const String &json, String &reply) {
+  Serial.printf("[CMD] %u bytes, free heap before parse: %lu\n", json.length(), ESP.getFreeHeap());
   JsonDocument doc;
   DeserializationError error = deserializeJson(doc, json);
-  if (error) { reply = "{\"ok\":false,\"error\":\"invalid json\"}"; return false; }
+  if (error) {
+    reply = "{\"ok\":0,\"error\":\"invalid json\"}";
+    Serial.printf("[CMD][ERROR] JSON parse failed: %s, heap: %lu\n", error.c_str(), ESP.getFreeHeap());
+    return false;
+  }
+
+  const char *operation = doc["op"] | "";
+  if (!strcmp(operation, "show_begin")) {
+    uint8_t expected = constrain(doc["count"].as<int>(), 1, MAX_SHOW_FRAMES);
+    uint16_t frameMs = constrain(doc["frameMs"].as<int>(), 50, 5000);
+    if (showUploadFile) showUploadFile.close();
+    LittleFS.remove(SHOW_TEMP_FILE);
+    showUploadFile = LittleFS.open(SHOW_TEMP_FILE, "w");
+    if (!showUploadFile) {
+      reply = "{\"ok\":0,\"error\":\"cannot open show storage\"}";
+      Serial.println("[SHOW][ERROR] Failed to open temporary show file");
+      return false;
+    }
+    writeShowHeader(showUploadFile, expected, frameMs);
+    uploadExpected = expected;
+    uploadReceived = 0;
+    uploadFrameMs = frameMs;
+    uploadActive = true;
+    if (doc["brightness"].is<int>()) deviceState.brightness = constrain(doc["brightness"].as<int>(), 1, 160);
+    reply = "{\"ok\":1,\"op\":\"begin\",\"n\":" + String(expected) + "}";
+    Serial.printf("[SHOW] BEGIN %u frames at %u ms, heap: %lu\n", expected, frameMs, ESP.getFreeHeap());
+    return true;
+  }
+
+  if (!strcmp(operation, "show_frame")) {
+    int index = doc["index"] | -1;
+    const char *pixelValue = doc["pixels"] | "";
+    if (!uploadActive) {
+      reply = "{\"ok\":0,\"error\":\"no active upload\"}";
+      return false;
+    }
+    if (index != uploadReceived || index >= uploadExpected) {
+      reply = "{\"ok\":0,\"error\":\"frame out of order\",\"want\":" + String(uploadReceived) + "}";
+      Serial.printf("[SHOW][ERROR] Out-of-order frame %d, expected %u\n", index, uploadReceived);
+      return false;
+    }
+    String pixels(pixelValue);
+    uint8_t binary[FRAME_BINARY_SIZE];
+    if (!frameToBinary(pixels, binary)) {
+      reply = "{\"ok\":0,\"error\":\"invalid frame pixels\"}";
+      Serial.printf("[SHOW][ERROR] Invalid frame %d length=%u\n", index, pixels.length());
+      return false;
+    }
+    size_t written = showUploadFile.write(binary, FRAME_BINARY_SIZE);
+    showUploadFile.flush();
+    if (written != FRAME_BINARY_SIZE) {
+      reply = "{\"ok\":0,\"error\":\"show storage write failed\"}";
+      Serial.printf("[SHOW][ERROR] Frame %d wrote %u/%u bytes\n", index, written, FRAME_BINARY_SIZE);
+      uploadActive = false;
+      showUploadFile.close();
+      return false;
+    }
+    showFrames[index] = pixels;
+    uploadReceived++;
+    reply = "{\"ok\":1,\"i\":" + String(index) + "}";
+    Serial.printf("[SHOW] FRAME %d/%u saved (%u bytes), heap: %lu\n", index + 1, uploadExpected, written, ESP.getFreeHeap());
+    return true;
+  }
+
+  if (!strcmp(operation, "show_commit")) {
+    if (!uploadActive || uploadReceived != uploadExpected) {
+      reply = "{\"ok\":0,\"error\":\"upload incomplete\",\"have\":" + String(uploadReceived) + ",\"want\":" + String(uploadExpected) + "}";
+      Serial.printf("[SHOW][ERROR] COMMIT incomplete: %u/%u\n", uploadReceived, uploadExpected);
+      return false;
+    }
+    showUploadFile.flush();
+    showUploadFile.close();
+    if (!activateTempShow()) {
+      reply = "{\"ok\":0,\"error\":\"could not activate show\"}";
+      uploadActive = false;
+      return false;
+    }
+    showCount = uploadExpected;
+    showFrameMs = uploadFrameMs;
+    deviceState.mode = "show";
+    FastLED.setBrightness(deviceState.brightness);
+    saveState();
+    uploadActive = false;
+    reply = "{\"ok\":1,\"done\":" + String(showCount) + "}";
+    Serial.printf("[SHOW] COMMIT %u frames complete, heap: %lu\n", showCount, ESP.getFreeHeap());
+    return true;
+  }
+
+  if (!strcmp(operation, "show_cancel")) {
+    if (showUploadFile) showUploadFile.close();
+    LittleFS.remove(SHOW_TEMP_FILE);
+    uploadActive = false;
+    uploadExpected = uploadReceived = 0;
+    reply = "{\"ok\":1,\"op\":\"cancel\"}";
+    Serial.println("[SHOW] Upload cancelled");
+    return true;
+  }
   if (doc["mode"].is<const char*>()) deviceState.mode = String(doc["mode"].as<const char*>());
   if (doc["text"].is<const char*>()) deviceState.text = String(doc["text"].as<const char*>()).substring(0, 32);
   if (doc["direction"].is<const char*>()) deviceState.direction = String(doc["direction"].as<const char*>());
@@ -346,31 +530,31 @@ bool applyCommand(const String &json, String &reply) {
     showFrames[0] = pixels;
     showCount = 1;
     deviceState.mode = "custom";
-  }
-
-  JsonArray frames = doc["frames"].as<JsonArray>();
-  if (!frames.isNull()) {
-    uint8_t nextCount = min((uint8_t)frames.size(), (uint8_t)MAX_SHOW_FRAMES);
-    if (nextCount == 0) {
-      reply = "{\"ok\":false,\"error\":\"show needs at least one frame\"}";
+    if (!saveShowFile()) {
+      reply = "{\"ok\":0,\"error\":\"could not save frame\"}";
+      Serial.println("[SHOW][ERROR] Single-frame LittleFS save failed");
       return false;
     }
-    for (uint8_t i = 0; i < nextCount; i++) {
-      showFrames[i] = String(frames[i].as<const char*>());
-      if (showFrames[i].length() != PIXEL_HEX_LENGTH) {
-        reply = "{\"ok\":false,\"error\":\"every frame must contain 1680 hex characters\"}";
-        return false;
-      }
-    }
-    showCount = nextCount;
-    deviceState.mode = "show";
+  }
+
+  if (!doc["frames"].isNull()) {
+    reply = "{\"ok\":0,\"error\":\"bulk shows disabled; update the web app\"}";
+    Serial.println("[SHOW][ERROR] Rejected unsafe monolithic frames command");
+    return false;
   }
 
   FastLED.setBrightness(deviceState.brightness);
   saveState();
   reply = "{\"ok\":true,\"state\":" + stateJson() + "}";
-  if (txCharacteristic) { txCharacteristic->setValue(reply.c_str()); txCharacteristic->notify(); }
+  Serial.printf("[CMD] Applied, free heap: %lu\n", ESP.getFreeHeap());
   return true;
+}
+
+void notifyBleReply(const String &reply) {
+  if (!txCharacteristic) return;
+  String line = reply + "\n";
+  txCharacteristic->setValue(line.c_str());
+  txCharacteristic->notify();
 }
 
 void handleUsbSerial() {
@@ -379,6 +563,10 @@ void handleUsbSerial() {
   }
   while (Serial.available()) {
     char c = (char)Serial.read();
+    if (serialDroppingOversize) {
+      if (c == '\n') serialDroppingOversize = false;
+      continue;
+    }
     if (c == '\n') {
       serialBuffer.trim();
       if (serialBuffer.length()) {
@@ -389,9 +577,11 @@ void handleUsbSerial() {
       serialBuffer = "";
     } else if (c != '\r') {
       serialBuffer += c;
-      if (serialBuffer.length() > 48000) {
+      if (serialBuffer.length() > 4096) {
         serialBuffer = "";
-        Serial.println("{\"ok\":false,\"error\":\"USB command too large\"}");
+        serialDroppingOversize = true;
+        Serial.println("{\"ok\":0,\"error\":\"command too large; update web app\"}");
+        Serial.println("[TRANSPORT][ERROR] Rejected USB command over 4096 bytes");
       }
     }
   }
@@ -401,12 +591,24 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override {
     lastDataRxTime = millis();
     String part = String(characteristic->getValue().c_str());
+    if (bleDroppingOversize) {
+      if (part.indexOf('\n') >= 0) bleDroppingOversize = false;
+      return;
+    }
     bleBuffer += part;
     if (bleBuffer.endsWith("\n") || (bleBuffer.startsWith("{") && bleBuffer.endsWith("}"))) {
       bleBuffer.trim();
-      String reply; applyCommand(bleBuffer, reply); bleBuffer = "";
+      String reply;
+      applyCommand(bleBuffer, reply);
+      notifyBleReply(reply);
+      bleBuffer = "";
     }
-    if (bleBuffer.length() > 48000) bleBuffer = "";
+    if (bleBuffer.length() > 4096) {
+      bleBuffer = "";
+      bleDroppingOversize = true;
+      notifyBleReply("{\"ok\":0,\"error\":\"command too large; update web app\"}");
+      Serial.println("[TRANSPORT][ERROR] Rejected BLE command over 4096 bytes");
+    }
   }
 };
 
@@ -442,6 +644,7 @@ fetch("/api/state").then(r=>r.json()).then(s=>{ids.forEach(k=>{if(s[k]!==undefin
 
 void setupBle() {
   NimBLEDevice::init("LED-Diffuser");
+  NimBLEDevice::setMTU(185);
   NimBLEServer *bleServer = NimBLEDevice::createServer();
   NimBLEService *service = bleServer->createService(BLE_SERVICE);
   txCharacteristic = service->createCharacteristic(BLE_TX, NIMBLE_PROPERTY::NOTIFY);
@@ -473,8 +676,13 @@ void setupWeb() {
 
 void setup() {
   Serial.begin(115200);
-  serialBuffer.reserve(48000);
-  bleBuffer.reserve(48000);
+  serialBuffer.reserve(2048);
+  bleBuffer.reserve(2048);
+  if (!LittleFS.begin(true)) {
+    Serial.println("[FS][ERROR] LittleFS mount failed");
+  } else {
+    Serial.printf("[FS] LittleFS mounted: %u/%u bytes used\n", LittleFS.usedBytes(), LittleFS.totalBytes());
+  }
   loadState();
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(deviceState.brightness);
