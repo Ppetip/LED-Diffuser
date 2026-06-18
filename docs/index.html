@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#10131b">
 <title>LED Diffuser Studio</title>
-<link rel="stylesheet" href="styles.css?v=stream2">
+<link rel="stylesheet" href="styles.css?v=registry1">
 </head>
 <body><main>
 <div class="head">
@@ -39,7 +39,8 @@
       <div class="two"><button id="addFrame">Add frame</button><button id="cloneFrame">Duplicate</button><button id="deleteFrame" class="danger">Delete</button><button id="moveFrame">Move right</button></div>
       <label>Frame interval: <span id="frameMsValue">250</span> ms<input id="frameMs" type="range" min="50" max="2000" step="25" value="250"></label>
       <div class="two"><button id="sendFrame" disabled>Show this frame</button><button id="uploadShow" class="primary" disabled>Upload show</button></div>
-      <p class="note">Up to 8 frames. Once uploaded, the ESP32 loops and saves them without needing this page open.</p>
+      <button id="openAdjustments" class="wide">Brighten / Adjust Slideshow</button>
+      <p class="note">Up to 24 frames. Once uploaded, the ESP32 loops and saves them without needing this page open.</p>
     </div>
   </div>
   <div id="vibes" class="pane" hidden><div class="two">
@@ -59,6 +60,7 @@
   <div class="two"><button id="newProject">New</button><button id="saveLocal">Save here</button><button id="exportProject">Export</button><button id="importProject" class="primary">Compile & Import</button></div>
   <label>Load JSON template<select id="jsonTemplate">
     <option value="">-- Choose template --</option>
+    <option value="midnight_skyline">Midnight Skyline (primitives)</option>
     <option value="cyberpunk_rain">Cyberpunk Matrix Rain</option>
     <option value="city_sunset">Warm City Sunset</option>
     <option value="neon_waves">Pulsing Neon Waves</option>
@@ -66,8 +68,18 @@
     <option value="pacman_retro">Pacman Retro Loop</option>
     <option value="glitch_strobe">Hypnotic Glitch Strobe</option>
   </select></label>
-  <textarea id="projectJson" placeholder="Paste Show Compiler JSON here..."></textarea>
-  <details><summary>AI prompt starter</summary><textarea id="aiPrompt">Create an abstract ambient animation for a 28x10 LED diffuser. Return JSON with name, frameMs, frameCount (up to 24), and a layers array. Each layer has type (gradient, radial_gradient, rainbow, plasma, rain, snow, starfield, waves, fire, shapes, text, cellular_automata, particles, street_scene, dial, letter_fill, clock, pacman, glitch, fireworks, sand, dna, kaleidoscope, radar, tunnel, ripple, equalizer, heartbeat, lighthouse, sunset, strobe), opacity (0-1), blend (normal, add, screen, multiply, overlay, mask, letter_fill) and params. Return clean JSON only.</textarea><button id="copyPrompt">Copy prompt</button></details>
+  <textarea id="projectJson" placeholder="Paste a v2 program, slideshow, slide, or 280-color frame..."></textarea>
+  <div class="two"><button id="copyRepairedJson">Copy repaired JSON</button><button id="exportSchema">Export live schema</button></div>
+  <section id="validationPanel" class="validation-panel" aria-live="polite"><strong>Validation</strong><p class="note">Paste JSON and choose Compile & Import.</p></section>
+  <details open><summary>AI program prompt</summary>
+    <label>Prompt mode<select id="aiPromptMode"><option>custom program</option><option>ambient scene</option><option>pixel art</option><option>animation</option><option>text display</option><option>game style</option><option>music visualizer</option></select></label>
+    <textarea id="aiPrompt"></textarea>
+    <div class="two"><button id="refreshPrompt">Refresh from registry</button><button id="copyPrompt">Copy prompt</button></div>
+  </details>
+  <details><summary>Block browser</summary>
+    <input id="blockSearch" type="search" placeholder="Search blocks and parameters">
+    <div id="blockBrowser" class="block-browser"></div>
+  </details>
   <details open><summary>Device / upload log</summary>
     <pre id="transportLog" class="transport-log" aria-live="polite">Waiting for device messages...\n</pre>
     <button id="clearTransportLog" type="button">Clear log</button>
@@ -75,5 +87,26 @@
   <details><summary>Connection details</summary><p class="note">The page sends the same JSON directly over BLE or USB serial. Pairing and serial-port selection require a button press. GitHub never receives your display commands.</p></details>
 </aside>
 </div>
-<script src="app.js?v=stream2"></script>
+<dialog id="adjustmentDialog" class="adjustment-dialog">
+  <form method="dialog">
+    <div class="dialog-head"><h2>Brighten / Adjust Slideshow</h2><button value="cancel" aria-label="Close">Close</button></div>
+    <div class="adjustment-previews">
+      <figure><canvas id="adjustBefore" width="280" height="100"></canvas><figcaption>Before</figcaption></figure>
+      <figure><canvas id="adjustAfter" width="280" height="100"></canvas><figcaption>After</figcaption></figure>
+    </div>
+    <div class="two">
+      <label>Brightness <span id="adjustBrightnessValue">1.00×</span><input id="adjustBrightness" type="range" min="0.1" max="3" step="0.05" value="1"></label>
+      <label>Contrast <span id="adjustContrastValue">1.00×</span><input id="adjustContrast" type="range" min="0.25" max="2.5" step="0.05" value="1"></label>
+      <label>Saturation <span id="adjustSaturationValue">1.00×</span><input id="adjustSaturation" type="range" min="0" max="3" step="0.05" value="1"></label>
+      <label>Gamma <span id="adjustGammaValue">1.00</span><input id="adjustGamma" type="range" min="0.4" max="2.5" step="0.05" value="1"></label>
+    </div>
+    <label>Apply scope<select id="adjustScope"><option value="all">Entire slideshow</option><option value="current">Current slide</option><option value="selected">Selected slide numbers</option></select></label>
+    <label id="selectedSlidesLabel" hidden>Slides, for example 1,3-5<input id="selectedSlides" value="1"></label>
+    <label><input id="adjustBake" type="checkbox" style="width:auto"> Bake permanently into pixel colors</label>
+    <p class="note">Nondestructive adjustments stay editable and are applied to preview, upload, and export. Baking modifies RGB pixels.</p>
+    <div class="two"><button id="resetAdjustments" type="button">Reset original</button><button id="applyAdjustments" type="button" class="primary">Apply adjustment</button></div>
+  </form>
+</dialog>
+<script src="program-compiler.js?v=registry1"></script>
+<script src="app.js?v=registry1"></script>
 </main></body></html>

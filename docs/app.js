@@ -166,12 +166,26 @@ async function sendCommand(payload,startPercent=0,endPercent=100,timeoutMs=12000
   if(!(reply.ok===1||reply.ok===true))throw Error(reply.error||"Device rejected command");
   return reply;
 }
+const NEUTRAL_ADJUSTMENTS={brightness:1,contrast:1,saturation:1,gamma:1,tint:"#ffffff",tintAmount:0};
+let lastImportResult=null;
+function ensureAdjustments(){
+  if(!project.adjustments||typeof project.adjustments!=="object")project.adjustments={global:{...NEUTRAL_ADJUSTMENTS},perFrame:{}};
+  if(!project.adjustments.global)project.adjustments.global={...NEUTRAL_ADJUSTMENTS};
+  if(!project.adjustments.perFrame)project.adjustments.perFrame={};
+}
+function adjustmentForFrame(index){
+  ensureAdjustments();
+  return {...NEUTRAL_ADJUSTMENTS,...project.adjustments.global,...(project.adjustments.perFrame[index]||{})};
+}
+function effectiveFrame(index){
+  return LEDCompiler.adjustFrame(project.frames[index],adjustmentForFrame(index));
+}
 function pixelsHex(frame){return frame.map(color=>color.slice(1)).join("")}
 async function sendCurrent(){
   try{
     $("sendFrame").disabled=true;
     setStatus("Sending frame...");
-    await sendCommand({brightness:+$("brightness").value,pixels:pixelsHex(project.frames[active])},0,100,15000);
+    await sendCommand({brightness:+$("brightness").value,pixels:pixelsHex(effectiveFrame(active))},0,100,15000);
     setStatus("Frame confirmed by diffuser",true);
     appendTransportLog("Single frame accepted and saved");
   }catch(error){
@@ -208,7 +222,7 @@ async function uploadShow(){
           reply=await sendCommand({
             op:"show_frame",
             index,
-            pixels:pixelsHex(project.frames[index])
+            pixels:pixelsHex(effectiveFrame(index))
           },startPercent,endPercent,20000);
           if(reply.i!==index)throw Error(`Wrong acknowledgement for frame ${index+1}`);
           lastError=null;
@@ -304,7 +318,8 @@ function flushProjectRefresh(){
   drawFrames();saveDraft();
 }
 function draw(){
-  [...$("matrix").children].forEach((pixel,i)=>pixel.style.background=project.frames[active][i]);
+  const visible=effectiveFrame(active);
+  [...$("matrix").children].forEach((pixel,i)=>pixel.style.background=visible[i]);
   drawFrames();
   saveDraft();
 }
@@ -329,7 +344,7 @@ function paint(index){
     if(frame[index]===next)return;
     frame[index]=next;
     const cell=$("matrix").children[index];
-    if(cell)cell.style.background=next;
+    if(cell)cell.style.background=LEDCompiler.adjustFrame([next],adjustmentForFrame(active))[0];
     scheduleProjectRefresh();
     return;
   }
@@ -343,7 +358,7 @@ function drawFrames(){
     const canvas=document.createElement("canvas");
     canvas.width=W;canvas.height=H;
     const context=canvas.getContext("2d");
-    frame.forEach((color,n)=>{
+    effectiveFrame(index).forEach((color,n)=>{
       context.fillStyle=color;
       context.fillRect(n%W,Math.floor(n/W),1,1);
     });
@@ -400,6 +415,7 @@ function loadProject(next){
   next.frames=next.frames.slice(0,MAX_FRAMES).map(frame=>frame.slice(0,N));
   if(next.frames.some(frame=>frame.length!==N))throw Error("Every frame needs 280 colors");
   project=next;active=0;
+  ensureAdjustments();
   $("projectName").value=next.name||"Wall show";
   $("frameMs").value=next.frameMs||250;
   sync();draw();
@@ -434,19 +450,37 @@ $("addFrame").onclick=()=>{
     project.frames.push(blank());active=project.frames.length-1;draw();
   }
 };
+function perFrameAdjustmentArray(){
+  ensureAdjustments();
+  return project.frames.map((_,index)=>project.adjustments.perFrame[index]?{...project.adjustments.perFrame[index]}:null);
+}
+function restorePerFrameAdjustments(values){
+  project.adjustments.perFrame={};
+  values.forEach((value,index)=>{if(value)project.adjustments.perFrame[index]=value});
+}
 $("cloneFrame").onclick=()=>{
   if(project.frames.length<MAX_FRAMES){
-    project.frames.splice(active+1,0,[...project.frames[active]]);active++;draw();
+    const adjustments=perFrameAdjustmentArray(),copy=adjustments[active]?{...adjustments[active]}:null;
+    project.frames.splice(active+1,0,[...project.frames[active]]);
+    adjustments.splice(active+1,0,copy);
+    restorePerFrameAdjustments(adjustments);
+    active++;draw();
   }
 };
 $("deleteFrame").onclick=()=>{
   if(project.frames.length>1){
-    project.frames.splice(active,1);active=Math.min(active,project.frames.length-1);draw();
+    const adjustments=perFrameAdjustmentArray();
+    project.frames.splice(active,1);adjustments.splice(active,1);
+    restorePerFrameAdjustments(adjustments);
+    active=Math.min(active,project.frames.length-1);draw();
   }
 };
 $("moveFrame").onclick=()=>{
   if(active<project.frames.length-1){
+    const adjustments=perFrameAdjustmentArray();
     [project.frames[active],project.frames[active+1]]=[project.frames[active+1],project.frames[active]];
+    [adjustments[active],adjustments[active+1]]=[adjustments[active+1],adjustments[active]];
+    restorePerFrameAdjustments(adjustments);
     active++;draw();
   }
 };
@@ -455,20 +489,63 @@ $("brightness").oninput=sync;
 $("speed").oninput=sync;
 $("newProject").onclick=()=>loadProject({name:"My wall show",frameMs:250,frames:[blank()]});
 $("saveLocal").onclick=()=>{saveDraft();setStatus("Project saved in this browser",!!rx)};
-$("exportProject").onclick=()=>$("projectJson").value=JSON.stringify(project);
+function renderValidation(result){
+  const panel=$("validationPanel");
+  const errors=result?.errors||[],warnings=result?.warnings||[];
+  const skipped=result?.skippedLayers||[];
+  const section=(title,items,kind)=>items.length?`<div class="${kind}"><strong>${title} (${items.length})</strong><ul>${items.map(item=>`<li><code>${escapeHtml(item.path||"$")}</code>: ${escapeHtml(item.message)}</li>`).join("")}</ul></div>`:"";
+  panel.innerHTML=`<strong>Validation</strong>${section("Errors",errors,"validation-errors")}${section("Warnings",warnings,"validation-warnings")}${skipped.length?`<p>Skipped layers: ${skipped.map(index=>index+1).join(", ")}</p>`:""}${!errors.length&&!warnings.length?"<p class='validation-ok'>Valid with no repairs.</p>":""}`;
+}
+function escapeHtml(value){
+  return String(value).replace(/[&<>"']/g,char=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[char]));
+}
+function downloadJson(name,value){
+  const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:"application/json"}));
+  const anchor=document.createElement("a");anchor.href=url;anchor.download=name;anchor.click();
+  setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+$("exportProject").onclick=()=>$("projectJson").value=JSON.stringify(project,null,2);
 $("importProject").onclick=()=>{
   try{
-    const val = JSON.parse($("projectJson").value);
-    if (val && Array.isArray(val.layers)) {
-      const compiled = compileShow(val);
+    const repaired=LEDCompiler.sanitizeJsonText($("projectJson").value);
+    const parsed=JSON.parse(repaired);
+    if(parsed&&Array.isArray(parsed.layers)&&parsed.schemaVersion!==2){
+      const compiled=compileShow(parsed);
       loadProject(compiled);
-      setStatus("Show compiled and loaded successfully!", true);
-    } else {
-      loadProject(val);
+      lastImportResult={repairedText:JSON.stringify(parsed,null,2),errors:[],warnings:[{path:"schemaVersion",message:"Legacy compiler used; add schemaVersion 2 for registry validation."}]};
+      renderValidation(lastImportResult);
+      setStatus("Legacy show compiled and loaded",true);
+      return;
     }
+    const result=LEDCompiler.importJson($("projectJson").value,{partial:true});
+    lastImportResult=result;
+    renderValidation(result);
+    if(result.kind==="program"&&result.frames?.length){
+      loadProject(result.project);
+      setStatus(result.errors.length?`Compiled with ${result.errors.length} reported issue(s); valid layers loaded`:"Program validated, compiled, and loaded",true);
+    }else if(["slideshow","single-slide","raw-frame"].includes(result.kind)&&!result.errors.length){
+      loadProject(result.value);
+      setStatus("Slideshow JSON imported",true);
+    }else{
+      throw Error(result.errors.map(item=>`${item.path}: ${item.message}`).join("; ")||"Nothing importable found");
+    }
+  }catch(error){
+    setStatus(error.message,false,true);
+    if(!lastImportResult)renderValidation({errors:[{path:"$",message:error.message}],warnings:[]});
   }
-  catch(error){setStatus(error.message,false,true)}
 };
+$("copyRepairedJson").onclick=async()=>{
+  if(!lastImportResult)throw Error("Compile or import JSON first");
+  const repaired=lastImportResult.program||lastImportResult.value||JSON.parse(lastImportResult.repairedText);
+  await navigator.clipboard.writeText(JSON.stringify(repaired,null,2));
+  setStatus("Repaired JSON copied",true);
+};
+$("exportSchema").onclick=()=>downloadJson("led-diffuser-schema-v2.json",{schemaVersion:2,width:28,height:10,blendModes:LEDCompiler.BLEND_MODES,blocks:LEDCompiler.schema()});
+function refreshAiPrompt(){
+  $("aiPrompt").value=LEDCompiler.buildAiPrompt($("aiPromptMode").value);
+}
+$("refreshPrompt").onclick=refreshAiPrompt;
+$("aiPromptMode").onchange=refreshAiPrompt;
 $("copyPrompt").onclick=async()=>navigator.clipboard.writeText($("aiPrompt").value);
 $("sendVibe").onclick=async()=>{
   try{
@@ -1314,7 +1391,139 @@ function compileShow(spec) {
   };
 }
 
+function renderBlockBrowser(query=""){
+  const browser=$("blockBrowser");
+  const normalized=query.trim().toLowerCase();
+  const entries=Object.entries(LEDCompiler.registry).filter(([type,definition])=>{
+    const haystack=[type,definition.category,definition.description,...Object.keys(definition.params)].join(" ").toLowerCase();
+    return !normalized||haystack.includes(normalized);
+  });
+  browser.innerHTML=entries.map(([type,definition])=>{
+    const parameters=Object.entries(definition.params).map(([name,schema])=>{
+      const limits=schema.values?` [${schema.values.join("|")}]`:schema.min!=null?` [${schema.min}..${schema.max}]`:"";
+      const coordinates=schema.coordinate?` (${schema.coordinate})`:"";
+      return `<li title="${escapeHtml(JSON.stringify(schema))}"><code>${escapeHtml(name)}</code>: ${schema.type}${limits}${coordinates}</li>`;
+    }).join("");
+    return `<article class="block-card"><header><strong>${escapeHtml(type)}</strong><span>${escapeHtml(definition.category)}</span></header><p>${escapeHtml(definition.description)}</p><ul>${parameters}</ul><button type="button" data-insert-block="${escapeHtml(type)}">Insert example</button></article>`;
+  }).join("")||"<p class='note'>No matching blocks.</p>";
+  browser.querySelectorAll("[data-insert-block]").forEach(button=>button.onclick=()=>insertBlockExample(button.dataset.insertBlock));
+}
+function insertBlockExample(type){
+  const definition=LEDCompiler.registry[type];
+  let program;
+  try{
+    const parsed=JSON.parse(LEDCompiler.sanitizeJsonText($("projectJson").value));
+    program=parsed?.schemaVersion===2&&Array.isArray(parsed.layers)?parsed:null;
+  }catch(error){}
+  if(!program)program={schemaVersion:2,name:"Custom LED Program",width:28,height:10,frameMs:100,frameCount:12,brightness:1,layers:[]};
+  program.layers.push({id:`${type}-${program.layers.length+1}`,type,enabled:true,opacity:1,blend:"normal",params:structuredClone(definition.example)});
+  $("projectJson").value=JSON.stringify(program,null,2);
+  setStatus(`Inserted ${type} example`,true);
+}
+$("blockSearch").oninput=event=>renderBlockBrowser(event.target.value);
+function adjustmentValues(){
+  return {
+    brightness:+$("adjustBrightness").value,
+    contrast:+$("adjustContrast").value,
+    saturation:+$("adjustSaturation").value,
+    gamma:+$("adjustGamma").value,
+    tint:"#ffffff",
+    tintAmount:0
+  };
+}
+function drawAdjustmentCanvas(canvas,frame){
+  const context=canvas.getContext("2d");
+  frame.forEach((color,index)=>{
+    context.fillStyle=color;
+    context.fillRect((index%W)*10,Math.floor(index/W)*10,10,10);
+  });
+}
+function refreshAdjustmentPreview(){
+  const values=adjustmentValues();
+  $("adjustBrightnessValue").textContent=values.brightness.toFixed(2)+"×";
+  $("adjustContrastValue").textContent=values.contrast.toFixed(2)+"×";
+  $("adjustSaturationValue").textContent=values.saturation.toFixed(2)+"×";
+  $("adjustGammaValue").textContent=values.gamma.toFixed(2);
+  drawAdjustmentCanvas($("adjustBefore"),project.frames[active]);
+  drawAdjustmentCanvas($("adjustAfter"),LEDCompiler.adjustFrame(project.frames[active],values));
+}
+function selectedAdjustmentFrames(){
+  const scope=$("adjustScope").value;
+  if(scope==="all")return project.frames.map((_,index)=>index);
+  if(scope==="current")return[active];
+  const indexes=new Set();
+  for(const part of $("selectedSlides").value.split(",")){
+    const match=part.trim().match(/^(\d+)(?:-(\d+))?$/);
+    if(!match)continue;
+    let start=+match[1],end=+(match[2]||match[1]);
+    if(start>end)[start,end]=[end,start];
+    for(let value=start;value<=end;value++)if(value>=1&&value<=project.frames.length)indexes.add(value-1);
+  }
+  if(!indexes.size)throw Error("Enter at least one valid selected slide number");
+  return[...indexes];
+}
+$("openAdjustments").onclick=()=>{
+  ensureAdjustments();
+  for(const [id,value] of [["adjustBrightness",1],["adjustContrast",1],["adjustSaturation",1],["adjustGamma",1]])$(id).value=value;
+  $("adjustScope").value="all";
+  $("selectedSlidesLabel").hidden=true;
+  $("adjustBake").checked=false;
+  refreshAdjustmentPreview();
+  $("adjustmentDialog").showModal();
+};
+["adjustBrightness","adjustContrast","adjustSaturation","adjustGamma"].forEach(id=>$(id).oninput=refreshAdjustmentPreview);
+$("adjustScope").onchange=()=>$("selectedSlidesLabel").hidden=$("adjustScope").value!=="selected";
+$("applyAdjustments").onclick=()=>{
+  try{
+    const values=adjustmentValues(),indexes=selectedAdjustmentFrames();
+    ensureAdjustments();
+    if($("adjustBake").checked){
+      if(!project.adjustmentBackup)project.adjustmentBackup=project.frames.map(frame=>[...frame]);
+      indexes.forEach(index=>{
+        project.frames[index]=LEDCompiler.adjustFrame(project.frames[index],values);
+        delete project.adjustments.perFrame[index];
+      });
+    }else if($("adjustScope").value==="all"){
+      project.adjustments.global={...values};
+    }else{
+      indexes.forEach(index=>project.adjustments.perFrame[index]={...values});
+    }
+    draw();
+    $("adjustmentDialog").close();
+    setStatus(`Adjustments applied to ${indexes.length} slide(s)`,true);
+  }catch(error){setStatus(error.message,false,true)}
+};
+$("resetAdjustments").onclick=()=>{
+  if(project.adjustmentBackup){
+    project.frames=project.adjustmentBackup.map(frame=>[...frame]);
+    delete project.adjustmentBackup;
+  }
+  project.adjustments={global:{...NEUTRAL_ADJUSTMENTS},perFrame:{}};
+  draw();
+  refreshAdjustmentPreview();
+  setStatus("Slideshow adjustments reset",true);
+};
 const JSON_TEMPLATES = {
+  midnight_skyline: {
+    schemaVersion: 2,
+    name: "Midnight Skyline Glow",
+    width: 28,
+    height: 10,
+    frameMs: 120,
+    frameCount: 16,
+    brightness: 1,
+    layers: [
+      {id:"sky",type:"gradient",enabled:true,opacity:1,blend:"normal",params:{color1:"#020617",color2:"#312e81",direction:"vertical"}},
+      {id:"stars",type:"stars",enabled:true,opacity:0.85,blend:"screen",params:{count:18,color:"#ffffff",seed:"midnight",twinkle:true}},
+      {id:"tower-left",type:"rectangle",enabled:true,opacity:1,blend:"normal",params:{x:1,y:5,width:7,height:5,color:"#111827",filled:true}},
+      {id:"tower-center",type:"rectangle",enabled:true,opacity:1,blend:"normal",params:{x:10,y:3,width:8,height:7,color:"#0f172a",filled:true}},
+      {id:"tower-right",type:"rectangle",enabled:true,opacity:1,blend:"normal",params:{x:20,y:6,width:7,height:4,color:"#111827",filled:true}},
+      {id:"windows-left",type:"windows",enabled:true,opacity:1,blend:"add",params:{x:2,y:6,columns:3,rows:2,spacingX:2,spacingY:2,color:"#ffe66d",litChance:0.75,seed:"left"}},
+      {id:"windows-center",type:"windows",enabled:true,opacity:1,blend:"add",params:{x:11,y:4,columns:3,rows:3,spacingX:2,spacingY:2,color:"#ff9f1c",litChance:0.7,seed:"center"}},
+      {id:"moon",type:"moon",enabled:true,opacity:1,blend:"screen",params:{cx:23,cy:2,radius:2.5,cutout:1.5,color:"#dce7f5"}},
+      {id:"glow",type:"gamma",enabled:true,opacity:1,blend:"normal",params:{amount:1.2}}
+    ]
+  },
   cyberpunk_rain: {
     name: "Cyberpunk Rain",
     frameMs: 100,
@@ -1474,6 +1683,8 @@ $("jsonTemplate").onchange = (e) => {
   }
 };
 
+renderBlockBrowser();
+refreshAiPrompt();
 try{
   const saved=JSON.parse(localStorage.getItem("ledDiffuserDraft"));
   if(saved)loadProject(saved);else draw();

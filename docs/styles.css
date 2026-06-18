@@ -11,7 +11,6 @@
   --glow: rgba(124, 231, 221, 0.3);
   --cell: 20px;
 }
-
 * {
   box-sizing: border-box;
   font-family: 'Outfit', system-ui, sans-serif;
@@ -517,3 +516,17 @@ textarea {
     order: 3;
   }
 }.transport-log{max-height:220px;overflow:auto;white-space:pre-wrap;word-break:break-word;background:#080b10;border:1px solid var(--line);border-radius:9px;padding:10px;color:#b8f7d4;font:12px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace}.transport-log+.button{margin-top:6px}
+.validation-panel{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#0b1018;max-height:260px;overflow:auto}
+.validation-panel ul{margin:6px 0 10px;padding-left:20px}
+.validation-panel li{margin:4px 0}
+.validation-errors{color:#ffadb9}.validation-warnings{color:#ffe29a}.validation-ok{color:#8cff98}
+.block-browser{display:grid;gap:9px;max-height:460px;overflow:auto;margin-top:9px}
+.block-card{border:1px solid var(--line);border-radius:10px;padding:9px;background:#0c1119}
+.block-card header{display:flex;justify-content:space-between;gap:8px}.block-card header span{color:var(--a);font-size:11px}
+.block-card p{color:var(--muted);margin:6px 0}.block-card ul{margin:6px 0;padding-left:18px;font-size:11px}
+.adjustment-dialog{width:min(760px,calc(100vw - 24px));max-height:90vh;overflow:auto;border:1px solid var(--line);border-radius:16px;background:var(--panel);color:var(--ink);padding:16px}
+.adjustment-dialog::backdrop{background:#000b;backdrop-filter:blur(3px)}
+.dialog-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.dialog-head h2{font-size:20px;margin:0}.dialog-head button{width:auto}
+.adjustment-previews{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
+.adjustment-previews figure{margin:0}.adjustment-previews canvas{width:100%;aspect-ratio:28/10;image-rendering:pixelated;background:#000;border:1px solid var(--line);border-radius:8px}.adjustment-previews figcaption{text-align:center;color:var(--muted)}
+@media(max-width:720px){.adjustment-dialog{width:calc(100vw - 12px);max-height:96vh;padding:10px}.adjustment-previews{grid-template-columns:1fr}.validation-panel{max-height:220px}.block-browser{max-height:360px}}
