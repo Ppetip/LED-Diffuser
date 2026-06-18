@@ -43,17 +43,18 @@ async function connectUsb(){
   try{
     serialPort=await navigator.serial.requestPort();
     await serialPort.open({baudRate:115200});
+    await serialPort.setSignals({dataTerminalReady:true,requestToSend:false});
     serialWriter=serialPort.writable.getWriter();
     activeTransport="usb";
     setConnected(true,"USB");
-    await new Promise(resolve=>setTimeout(resolve,1200));
+    await new Promise(resolve=>setTimeout(resolve,2000));
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
 async function disconnectTransport(){
   try{
     if(device?.gatt?.connected)device.gatt.disconnect();
     if(serialWriter){serialWriter.releaseLock();serialWriter=null}
-    if(serialPort){await serialPort.close();serialPort=null}
+    if(serialPort){await serialPort.setSignals({dataTerminalReady:false,requestToSend:false});await serialPort.close();serialPort=null}
   }finally{activeTransport=null;setConnected(false)}
 }
 async function transmit(payload){
