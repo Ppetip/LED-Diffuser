@@ -92,7 +92,7 @@ void renderAura(uint32_t now) {
 
 void renderRain(uint32_t now) {
   fadeToBlackBy(leds, NUM_LEDS, 48);
-  uint16_t tick = now / max<uint16_t>(35, state.speed);
+  uint16_t tick = now / max((uint16_t)35, state.speed);
   for (uint8_t x = 0; x < VIEW_W; x++) {
     uint8_t y = (tick + x * 7 + (x * x)) % (VIEW_H + 5);
     if (y < VIEW_H) setPixel(x, y, CHSV(state.hue + x * 3, state.saturation, 220));
@@ -131,7 +131,7 @@ void renderText(uint32_t now) {
   int width = state.text.length() * 6;
   bool vertical = state.direction == "up" || state.direction == "down";
   int cycle = (vertical ? VIEW_H + 8 : VIEW_W + width);
-  int step = (now / max<uint16_t>(40, state.speed)) % max(1, cycle);
+  int step = (now / max((uint16_t)40, state.speed)) % max(1, cycle);
   int baseX = state.direction == "right" ? -width + step : VIEW_W - step;
   int baseY = state.direction == "down" ? -8 + step : VIEW_H - step;
   for (uint16_t i = 0; i < state.text.length(); i++) {
