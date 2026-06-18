@@ -54,6 +54,7 @@ String serialBuffer;
 String showFrames[MAX_SHOW_FRAMES];
 uint8_t showCount = 0;
 uint16_t showFrameMs = 250;
+uint32_t lastDataRxTime = 0;
 
 uint8_t hexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -373,6 +374,9 @@ bool applyCommand(const String &json, String &reply) {
 }
 
 void handleUsbSerial() {
+  if (Serial.available()) {
+    lastDataRxTime = millis();
+  }
   while (Serial.available()) {
     char c = (char)Serial.read();
     if (c == '\n') {
@@ -395,6 +399,7 @@ void handleUsbSerial() {
 
 class RxCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override {
+    lastDataRxTime = millis();
     String part = String(characteristic->getValue().c_str());
     bleBuffer += part;
     if (bleBuffer.endsWith("\n") || (bleBuffer.startsWith("{") && bleBuffer.endsWith("}"))) {
@@ -468,6 +473,8 @@ void setupWeb() {
 
 void setup() {
   Serial.begin(115200);
+  serialBuffer.reserve(48000);
+  bleBuffer.reserve(48000);
   loadState();
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(deviceState.brightness);
@@ -486,6 +493,9 @@ void loop() {
   handleUsbSerial();
   readMpu();
   uint32_t now = millis();
+  if (now - lastDataRxTime < 1500) {
+    return; // Pause LED renders during active transfers so interrupts stay enabled
+  }
   if (now - lastFrame < 33) return;
   lastFrame = now;
   if (deviceState.mode == "custom" || deviceState.mode == "show") renderShow(now);

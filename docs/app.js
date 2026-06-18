@@ -68,8 +68,7 @@ async function transmit(payload){
     const chunkSize=180;
     for(let i=0;i<bytes.length;i+=chunkSize){
       const part=bytes.slice(i,i+chunkSize);
-      if(rx.writeValueWithoutResponse)await rx.writeValueWithoutResponse(part);
-      else await rx.writeValue(part);
+      await rx.writeValue(part);
       $("progress").style.width=Math.round(100*Math.min(bytes.length,i+chunkSize)/bytes.length)+"%";
     }
   }else throw Error("Connect Bluetooth or USB first");
