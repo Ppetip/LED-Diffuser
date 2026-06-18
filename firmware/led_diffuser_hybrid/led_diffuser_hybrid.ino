@@ -675,6 +675,7 @@ void setupWeb() {
 }
 
 void setup() {
+  Serial.setRxBufferSize(4096);
   Serial.begin(115200);
   serialBuffer.reserve(2048);
   bleBuffer.reserve(2048);
