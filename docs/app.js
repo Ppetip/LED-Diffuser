@@ -23,7 +23,7 @@ async function connect(){
   if(!navigator.bluetooth){setStatus("Web Bluetooth is unavailable here.",false,true);return}
   try{
     setStatus("Choose LED-Diffuser in the pairing window...");
-    device=await navigator.bluetooth.requestDevice({filters:[{name:"LED-Diffuser"}],optionalServices:[SERVICE]});
+    device=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE]}],optionalServices:[SERVICE]});
     device.addEventListener("gattserverdisconnected",()=>setConnected(false));
     const server=await device.gatt.connect();
     const service=await server.getPrimaryService(SERVICE);
