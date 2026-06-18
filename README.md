@@ -98,3 +98,22 @@ GitHub Pages hosts only the controller. It does not relay commands through the i
 Web Bluetooth requires a compatible browser and a secure HTTPS page. Chrome or Edge on a computer, and compatible Chromium browsers on Android, are the intended targets. The user must press the connection button and choose the device; websites cannot silently pair with Bluetooth devices.
 
 iPhone and iPad Safari do not currently provide the Web Bluetooth API used by this controller. Supporting iOS will require either the ESP32's Wi-Fi interface, an installed BLE app, or a different wrapper application.
+
+
+## Wired USB control
+
+The GitHub Pages studio supports **Connect USB** in Chrome or Edge on a desktop computer:
+
+1. Connect the ESP32-C3 to the computer with a data-capable USB cable.
+2. Close Arduino Serial Monitor and any program holding the COM port.
+3. Open the hosted studio and press **Connect USB**.
+4. Select the ESP32-C3 serial port.
+5. Use **Show this frame**, **Upload show**, or **Send live vibe** normally.
+
+USB serial and Bluetooth use the same newline-delimited JSON command parser.
+
+### USB-C phone warning
+
+A phone may be able to power the ESP32 controller over USB-C, but it should not power a 280-pixel LED matrix. The matrix can require many amps and may overload or shut down the phone's USB port. Keep the LEDs on a correctly sized external 5 V supply and connect its ground to ESP32 ground.
+
+Browser-based wired serial control is intended for desktop Chrome/Edge. Phone browser USB serial support is inconsistent; use BLE on compatible Android devices or the ESP32 Wi-Fi page at `http://192.168.4.1`. iPhone/iPad should use the Wi-Fi path.
