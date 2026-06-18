@@ -18,7 +18,8 @@
 #define SDA_PIN 8
 #define SCL_PIN 9
 #define MPU_ADDR 0x68
-#define MAX_SHOW_FRAMES 8
+#define MAX_SHOW_FRAMES 24
+#define FRAME_BINARY_SIZE (NUM_LEDS * 3)
 #define PIXEL_HEX_LENGTH (NUM_LEDS * 6)
 
 const char *AP_SSID = "LED-Diffuser";
@@ -36,6 +37,7 @@ struct State {
   String mode = "aura";
   String text = "VIBE";
   String direction = "left";
+  String font = "bold";
   uint8_t brightness = 35;
   uint16_t speed = 100;
   uint8_t hue = 180;
@@ -58,6 +60,7 @@ void loadState() {
   state.mode = preferences.getString("mode", state.mode);
   state.text = preferences.getString("text", state.text);
   state.direction = preferences.getString("direction", state.direction);
+  state.font = preferences.getString("font", state.font);
   state.brightness = preferences.getUChar("brightness", state.brightness);
   state.speed = preferences.getUShort("speed", state.speed);
   state.hue = preferences.getUChar("hue", state.hue);
@@ -67,8 +70,16 @@ void loadState() {
   showFrameMs = preferences.getUShort("frameMs", showFrameMs);
   for (uint8_t i = 0; i < showCount; i++) {
     String key = "frame" + String(i);
-    showFrames[i] = preferences.getString(key.c_str(), "");
-    if (showFrames[i].length() != PIXEL_HEX_LENGTH) {
+    uint8_t bin[FRAME_BINARY_SIZE];
+    size_t len = preferences.getBytes(key.c_str(), bin, FRAME_BINARY_SIZE);
+    if (len == FRAME_BINARY_SIZE) {
+      char hex[PIXEL_HEX_LENGTH + 1];
+      for (uint16_t j = 0; j < NUM_LEDS; j++) {
+        sprintf(&hex[j * 6], "%02x%02x%02x", bin[j * 3], bin[j * 3 + 1], bin[j * 3 + 2]);
+      }
+      hex[PIXEL_HEX_LENGTH] = '\0';
+      showFrames[i] = String(hex);
+    } else {
       showCount = i;
       break;
     }
@@ -79,6 +90,7 @@ void saveState() {
   preferences.putString("mode", state.mode);
   preferences.putString("text", state.text);
   preferences.putString("direction", state.direction);
+  preferences.putString("font", state.font);
   preferences.putUChar("brightness", state.brightness);
   preferences.putUShort("speed", state.speed);
   preferences.putUChar("hue", state.hue);
@@ -88,7 +100,14 @@ void saveState() {
   preferences.putUShort("frameMs", showFrameMs);
   for (uint8_t i = 0; i < showCount; i++) {
     String key = "frame" + String(i);
-    preferences.putString(key.c_str(), showFrames[i]);
+    uint8_t bin[FRAME_BINARY_SIZE];
+    for (uint16_t j = 0; j < NUM_LEDS; j++) {
+      uint16_t offset = j * 6;
+      bin[j * 3] = hexByte(showFrames[i], offset);
+      bin[j * 3 + 1] = hexByte(showFrames[i], offset + 2);
+      bin[j * 3 + 2] = hexByte(showFrames[i], offset + 4);
+    }
+    preferences.putBytes(key.c_str(), bin, FRAME_BINARY_SIZE);
   }
 }
 
@@ -193,29 +212,88 @@ const uint8_t FONT[][5] = {
   {0x07,0x08,0x70,0x08,0x07},{0x61,0x51,0x49,0x45,0x43}
 };
 
+const uint8_t FONT_BOLD[][6] = {
+  {0x7E,0x33,0x33,0x33,0x33,0x7E},{0xFF,0xFF,0xDB,0xDB,0xDB,0x66}, // A, B
+  {0x7E,0xFF,0xC3,0xC3,0xC3,0x42},{0xFF,0xFF,0xC3,0xC3,0xC3,0x7E}, // C, D
+  {0xFF,0xFF,0xDB,0xDB,0xDB,0xC3},{0xFF,0xFF,0x1B,0x1B,0x1B,0x03}, // E, F
+  {0x7E,0xFF,0xC3,0xDB,0xDB,0x7A},{0xFF,0xFF,0x18,0x18,0xFF,0xFF}, // G, H
+  {0xC3,0xC3,0xFF,0xFF,0xC3,0xC3},{0x70,0xF0,0xC0,0xC3,0xFF,0x7F}, // I, J
+  {0xFF,0xFF,0x3C,0x3C,0xC3,0xC3},{0xFF,0xFF,0xC0,0xC0,0xC0,0xC0}, // K, L
+  {0xFF,0xFF,0x06,0x0E,0xFF,0xFF},{0xFF,0xFF,0x1E,0x78,0xFF,0xFF}, // M, N
+  {0x7E,0xFF,0xC3,0xC3,0xFF,0x7E},{0xFF,0xFF,0x1B,0x1B,0x1B,0x06}, // O, P
+  {0x3E,0x7F,0x63,0xE3,0xFF,0xFE},{0xFF,0xFF,0x3B,0x7B,0xD3,0xA6}, // Q, R
+  {0x46,0xCF,0xDB,0xDB,0xF3,0x72},{0x03,0x03,0xFF,0xFF,0x03,0x03}, // S, T
+  {0x7F,0xFF,0xC0,0xC0,0xFF,0x7F},{0x0F,0x3F,0xF0,0xF0,0x3F,0x0F}, // U, V
+  {0xFF,0xFF,0x70,0x70,0xFF,0xFF},{0xC3,0xE7,0x3C,0x3C,0xE7,0xC3}, // W, X
+  {0x03,0x07,0xFC,0xFC,0x07,0x03},{0xC3,0xE3,0xD3,0xCB,0xC7,0xC3}, // Y, Z
+  {0x7E,0xFF,0xC3,0xC3,0xFF,0x7E},{0xC2,0xC2,0xFF,0xFF,0xC0,0xC0}, // 0, 1
+  {0xE2,0xDB,0xDB,0xDB,0xDB,0xC6},{0xC3,0xC3,0xDB,0xDB,0xFF,0xFF}, // 2, 3
+  {0x1F,0x1F,0x18,0x18,0xFF,0xFF},{0x4F,0xDF,0xDB,0xDB,0xF3,0x73}, // 4, 5
+  {0x7E,0xFF,0xDB,0xDB,0xF3,0x72},{0x03,0x03,0xF3,0xFB,0xFF,0xFF}, // 6, 7
+  {0x66,0xFF,0xDB,0xDB,0xFF,0x66},{0x46,0xCF,0xDB,0xDB,0xFF,0x7E}, // 8, 9
+  {0x00,0x00,0x00,0x00,0x00,0x00}                                  // Space
+};
+
 void drawChar(char c, int x0, int y0, CRGB color) {
-  if (c < 'A' || c > 'Z') return;
-  const uint8_t *glyph = FONT[c - 'A'];
-  for (uint8_t x = 0; x < 5; x++) {
-    for (uint8_t y = 0; y < 7; y++) {
-      if (glyph[x] & (1 << y)) setPixel(x0 + x, y0 + y, color);
+  if (state.font == "bold") {
+    int idx = -1;
+    if (c >= 'A' && c <= 'Z') idx = c - 'A';
+    else if (c >= '0' && c <= '9') idx = 26 + (c - '0');
+    else if (c == ' ') idx = 36;
+    if (idx != -1) {
+      const uint8_t *glyph = FONT_BOLD[idx];
+      for (uint8_t x = 0; x < 6; x++) {
+        for (uint8_t y = 0; y < 8; y++) {
+          if (glyph[x] & (1 << y)) setPixel(x0 + x, y0 + y, color);
+        }
+      }
+    }
+  } else {
+    if (c < 'A' || c > 'Z') return;
+    const uint8_t *glyph = FONT[c - 'A'];
+    for (uint8_t x = 0; x < 5; x++) {
+      for (uint8_t y = 0; y < 7; y++) {
+        if (glyph[x] & (1 << y)) setPixel(x0 + x, y0 + y, color);
+      }
     }
   }
 }
 
 void renderText(uint32_t now) {
   fill_solid(leds, NUM_LEDS, CRGB::Black);
-  int width = state.text.length() * 6;
   bool vertical = state.direction == "up" || state.direction == "down";
-  int cycle = (vertical ? VIEW_H + 8 : VIEW_W + width);
-  int step = (now / max((uint16_t)40, state.speed)) % max(1, cycle);
-  int baseX = state.direction == "right" ? -width + step : VIEW_W - step;
-  int baseY = state.direction == "down" ? -8 + step : VIEW_H - step;
-  for (uint16_t i = 0; i < state.text.length(); i++) {
-    char c = toupper(state.text[i]);
-    int x = vertical ? 1 + (i % 4) * 7 : baseX + i * 6;
-    int y = vertical ? baseY - (i / 4) * 8 : 1;
-    drawChar(c, x, y, CHSV(state.hue + i * 8, state.saturation, 255));
+  bool isBold = state.font == "bold";
+  int charW = isBold ? 6 : 5;
+  int charH = isBold ? 8 : 7;
+  int charSpacing = isBold ? 7 : 6;
+  int lineHeight = isBold ? 9 : 8;
+
+  if (vertical) {
+    int charsPerLine = 4;
+    int lines = (state.text.length() + charsPerLine - 1) / charsPerLine;
+    int totalHeight = lines * lineHeight;
+    int cycle = VIEW_H + totalHeight;
+    int step = (now / max((uint16_t)40, state.speed)) % max(1, cycle);
+    int baseY = state.direction == "down" ? -totalHeight + step : VIEW_H - step;
+
+    for (uint16_t i = 0; i < state.text.length(); i++) {
+      char c = toupper(state.text[i]);
+      int x = 1 + (i % charsPerLine) * charSpacing;
+      int y = baseY + (i / charsPerLine) * lineHeight;
+      drawChar(c, x, y, CHSV(state.hue + i * 8, state.saturation, 255));
+    }
+  } else {
+    int width = state.text.length() * charSpacing;
+    int cycle = VIEW_W + width;
+    int step = (now / max((uint16_t)40, state.speed)) % max(1, cycle);
+    int baseX = state.direction == "right" ? -width + step : VIEW_W - step;
+    int baseY = (VIEW_H - charH) / 2;
+
+    for (uint16_t i = 0; i < state.text.length(); i++) {
+      char c = toupper(state.text[i]);
+      int x = baseX + i * charSpacing;
+      drawChar(c, x, baseY, CHSV(state.hue + i * 8, state.saturation, 255));
+    }
   }
 }
 
@@ -234,7 +312,8 @@ void renderTilt(uint32_t now) {
 String stateJson() {
   JsonDocument doc;
   doc["mode"] = state.mode; doc["text"] = state.text;
-  doc["direction"] = state.direction; doc["brightness"] = state.brightness;
+  doc["direction"] = state.direction; doc["font"] = state.font;
+  doc["brightness"] = state.brightness;
   doc["speed"] = state.speed; doc["hue"] = state.hue;
   doc["saturation"] = state.saturation; doc["motion"] = state.motion;
   doc["mpu"] = mpuReady; doc["ip"] = WiFi.softAPIP().toString();
@@ -249,6 +328,7 @@ bool applyCommand(const String &json, String &reply) {
   if (doc["mode"].is<const char*>()) state.mode = String(doc["mode"].as<const char*>());
   if (doc["text"].is<const char*>()) state.text = String(doc["text"].as<const char*>()).substring(0, 32);
   if (doc["direction"].is<const char*>()) state.direction = String(doc["direction"].as<const char*>());
+  if (doc["font"].is<const char*>()) state.font = String(doc["font"].as<const char*>());
   if (doc["brightness"].is<int>()) state.brightness = constrain(doc["brightness"].as<int>(), 1, 160);
   if (doc["speed"].is<int>()) state.speed = constrain(doc["speed"].as<int>(), 35, 2000);
   if (doc["hue"].is<int>()) state.hue = doc["hue"].as<int>();
@@ -305,7 +385,7 @@ void handleUsbSerial() {
       serialBuffer = "";
     } else if (c != '\r') {
       serialBuffer += c;
-      if (serialBuffer.length() > 18000) {
+      if (serialBuffer.length() > 48000) {
         serialBuffer = "";
         Serial.println("{\"ok\":false,\"error\":\"USB command too large\"}");
       }
@@ -321,7 +401,7 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
       bleBuffer.trim();
       String reply; applyCommand(bleBuffer, reply); bleBuffer = "";
     }
-    if (bleBuffer.length() > 18000) bleBuffer = "";
+    if (bleBuffer.length() > 48000) bleBuffer = "";
   }
 };
 
@@ -336,17 +416,22 @@ button{background:#67e8f9;color:#082f49;font-weight:700;cursor:pointer}textarea{
 </style><main><h1>LED Diffuser</h1><p class=muted>Wi-Fi + Bluetooth share the same animation state.</p>
 <div class=row><label>Mode<select id=mode><option>aura</option><option>rain</option><option>text</option><option>tilt</option></select></label>
 <label>Direction<select id=direction><option>left</option><option>right</option><option>up</option><option>down</option></select></label></div>
-<label>Text<input id=text value=VIBE maxlength=32></label>
+<div class=row><label>Font<select id=font><option>bold</option><option>standard</option></select></label>
+<label>Text<input id=text value=VIBE maxlength=32></label></div>
 <div class=row><label>Brightness<input id=brightness type=range min=1 max=160 value=35></label>
 <label>Speed ms<input id=speed type=number min=35 max=2000 value=100></label></div>
 <div class=row><label>Hue<input id=hue type=range min=0 max=255 value=180></label>
 <label>Saturation<input id=saturation type=range min=0 max=255 value=210></label></div>
 <label><input id=motion type=checkbox checked style="width:auto"> MPU motion reaction</label>
-<button onclick=send()>Apply vibe</button><label>AI animation prompt<textarea id=prompt>Make a calm ambient LED vibe using only mode, hue, saturation, speed, direction, motion, and short readable text. The display is 28x10 pixels. Prefer gradients and motion over literal pictures. Return one compact JSON object only.</textarea></label>
+<button onclick=send()>Apply vibe</button>
+<label>JSON Console Command<textarea id=jsonConsole>{"mode":"text","text":"HELLO","font":"bold","direction":"down","speed":150}</textarea></label>
+<button onclick=sendJson()>Send JSON</button>
+<label>AI animation prompt<textarea id=prompt>Make a calm ambient LED vibe using only mode, hue, saturation, speed, direction, motion, and short readable text. The display is 28x10 pixels. Prefer gradients and motion over literal pictures. Return one compact JSON object only.</textarea></label>
 <button onclick="navigator.clipboard.writeText(prompt.value)">Copy AI prompt</button><pre id=status></pre></main>
 <script>
-const ids=["mode","direction","text","brightness","speed","hue","saturation","motion"];
+const ids=["mode","direction","font","text","brightness","speed","hue","saturation","motion"];
 async function send(){let o={};ids.forEach(k=>o[k]=k==="motion"?window[k].checked:(["brightness","speed","hue","saturation"].includes(k)?+window[k].value:window[k].value));let r=await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)});status.textContent=await r.text()}
+async function sendJson(){let r=await fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:jsonConsole.value});status.textContent=await r.text()}
 fetch("/api/state").then(r=>r.json()).then(s=>{ids.forEach(k=>{if(s[k]!==undefined)(k==="motion"?window[k].checked=s[k]:window[k].value=s[k])});status.textContent=JSON.stringify(s,null,2)})
 </script>)HTML";
 

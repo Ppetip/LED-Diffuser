@@ -45,7 +45,8 @@
   <div id="vibes" class="pane" hidden><div class="two">
     <label>Mode<select id="mode"><option value="aura">Aura</option><option value="rain">Rain</option><option value="text">Scrolling text</option><option value="tilt">Motion orb</option></select></label>
     <label>Direction<select id="direction"><option>left</option><option>right</option><option>up</option><option>down</option></select></label>
-    <label class="wide">Text<input id="text" maxlength="32" value="VIBE"></label>
+    <label>Font<select id="font"><option value="bold">Bold (6x8)</option><option value="standard">Standard (5x7)</option></select></label>
+    <label>Text<input id="text" maxlength="32" value="VIBE"></label>
     <label>Brightness <span id="brightnessValue">35</span><input id="brightness" type="range" min="1" max="160" value="35"></label>
     <label>Speed <span id="speedValue">100</span> ms<input id="speed" type="range" min="35" max="1000" value="100"></label>
     <label>Hue<input id="hue" type="range" min="0" max="255" value="180"></label>
@@ -53,11 +54,20 @@
     <label class="wide"><input id="motion" type="checkbox" checked style="width:auto"> Use MPU6050 motion</label>
   </div><button id="sendVibe" class="primary" disabled>Send live vibe</button></div>
 </section>
-<aside class="card right"><h2>Project</h2>
+<aside class="card right"><h2>Project & JSON Compiler</h2>
   <label>Project name<input id="projectName" value="My wall show"></label>
-  <div class="two"><button id="newProject">New</button><button id="saveLocal">Save here</button><button id="exportProject">Export</button><button id="importProject">Import</button></div>
-  <textarea id="projectJson" placeholder="Project JSON"></textarea>
-  <details><summary>AI prompt starter</summary><textarea id="aiPrompt">Create an abstract ambient animation for a 28x10 LED diffuser. Return JSON with a frames array. Each frame is a 10-row array; every row has 28 CSS hex colors. Use at most 8 frames. Prefer gradients, glow, weather, waves, and rhythm over detailed pictures or long writing.</textarea><button id="copyPrompt">Copy prompt</button></details>
+  <div class="two"><button id="newProject">New</button><button id="saveLocal">Save here</button><button id="exportProject">Export</button><button id="importProject" class="primary">Compile & Import</button></div>
+  <label>Load JSON template<select id="jsonTemplate">
+    <option value="">-- Choose template --</option>
+    <option value="cyberpunk_rain">Cyberpunk Matrix Rain</option>
+    <option value="city_sunset">Warm City Sunset</option>
+    <option value="neon_waves">Pulsing Neon Waves</option>
+    <option value="twinkle_dna">Double Helix Starfield</option>
+    <option value="pacman_retro">Pacman Retro Loop</option>
+    <option value="glitch_strobe">Hypnotic Glitch Strobe</option>
+  </select></label>
+  <textarea id="projectJson" placeholder="Paste Show Compiler JSON here..."></textarea>
+  <details><summary>AI prompt starter</summary><textarea id="aiPrompt">Create an abstract ambient animation for a 28x10 LED diffuser. Return JSON with name, frameMs, frameCount (up to 24), and a layers array. Each layer has type (gradient, radial_gradient, rainbow, plasma, rain, snow, starfield, waves, fire, shapes, text, cellular_automata, particles, street_scene, dial, letter_fill, clock, pacman, glitch, fireworks, sand, dna, kaleidoscope, radar, tunnel, ripple, equalizer, heartbeat, lighthouse, sunset, strobe), opacity (0-1), blend (normal, add, screen, multiply, overlay, mask, letter_fill) and params. Return clean JSON only.</textarea><button id="copyPrompt">Copy prompt</button></details>
   <details><summary>Connection details</summary><p class="note">The page sends the same JSON directly over BLE or USB serial. Pairing and serial-port selection require a button press. GitHub never receives your display commands.</p></details>
 </aside>
 </div>
