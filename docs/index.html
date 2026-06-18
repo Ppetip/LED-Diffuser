@@ -15,9 +15,10 @@
 <div class="layout">
 <aside class="card sidebar">
   <div><h2>Bluetooth</h2>
-    <button id="connect" class="primary">Connect LED-Diffuser</button>
+    <button id="connect" class="primary">Connect Bluetooth</button>
+    <button id="connectUsb">Connect USB</button>
     <button id="disconnect" disabled>Disconnect</button>
-    <p id="message" class="note">Chrome/Edge desktop or compatible Android browser.</p>
+    <p id="message" class="note">Bluetooth: Chrome/Edge desktop or compatible Android. USB: Chrome/Edge desktop.</p>
     <div class="progress"><span id="progress"></span></div>
   </div>
   <div class="section"><h2>Paint tools</h2>
@@ -57,7 +58,7 @@
   <div class="two"><button id="newProject">New</button><button id="saveLocal">Save here</button><button id="exportProject">Export</button><button id="importProject">Import</button></div>
   <textarea id="projectJson" placeholder="Project JSON"></textarea>
   <details><summary>AI prompt starter</summary><textarea id="aiPrompt">Create an abstract ambient animation for a 28x10 LED diffuser. Return JSON with a frames array. Each frame is a 10-row array; every row has 28 CSS hex colors. Use at most 8 frames. Prefer gradients, glow, weather, waves, and rhythm over detailed pictures or long writing.</textarea><button id="copyPrompt">Copy prompt</button></details>
-  <details><summary>Connection details</summary><p class="note">The page sends JSON directly to the nearby ESP32 over BLE. Pairing requires a button press. GitHub never receives your display commands.</p></details>
+  <details><summary>Connection details</summary><p class="note">The page sends the same JSON directly over BLE or USB serial. Pairing and serial-port selection require a button press. GitHub never receives your display commands.</p></details>
 </aside>
 </div>
 <script src="app.js"></script>
