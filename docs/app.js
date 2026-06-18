@@ -3,7 +3,7 @@ const SERVICE="6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const RX="6e400002-b5a3-f393-e0a9-e50e24dcca9e";
 const TX="6e400003-b5a3-f393-e0a9-e50e24dcca9e";
 const $=id=>document.getElementById(id);
-let device,rx,tx,serialPort,serialWriter,activeTransport=null,tool="brush",drawing=false,active=0;
+let device,rx,tx,serialPort,serialWriter,activeTransport=null,tool="brush",drawing=false,lastPainted=null,refreshTimer=null,active=0;
 let project={name:"My wall show",frameMs:250,frames:[blank()]};
 
 function blank(){return Array(N).fill("#000000")}
@@ -91,15 +91,69 @@ async function uploadShow(){
 }
 
 function initGrid(){
-  $("matrix").innerHTML="";
+  const matrix=$("matrix");
+  matrix.innerHTML="";
   for(let i=0;i<N;i++){
     const pixel=document.createElement("div");
     pixel.className="pixel";
-    pixel.onpointerdown=event=>{event.preventDefault();drawing=true;paint(i)};
-    pixel.onpointerenter=()=>{if(drawing)paint(i)};
-    $("matrix").appendChild(pixel);
+    pixel.dataset.i=i;
+    matrix.appendChild(pixel);
   }
-  window.addEventListener("pointerup",()=>drawing=false);
+  matrix.onpointerdown=event=>{
+    event.preventDefault();
+    drawing=true;lastPainted=null;
+    matrix.setPointerCapture?.(event.pointerId);
+    paintFromEvent(event);
+  };
+  matrix.onpointermove=event=>{
+    if(!drawing)return;
+    event.preventDefault();
+    paintFromEvent(event);
+  };
+  const finish=event=>{
+    if(!drawing)return;
+    drawing=false;lastPainted=null;
+    if(matrix.hasPointerCapture?.(event.pointerId))matrix.releasePointerCapture(event.pointerId);
+    flushProjectRefresh();
+  };
+  matrix.onpointerup=finish;
+  matrix.onpointercancel=finish;
+  matrix.onlostpointercapture=()=>{drawing=false;lastPainted=null;flushProjectRefresh()};
+}
+function paintFromEvent(event){
+  const element=document.elementFromPoint(event.clientX,event.clientY);
+  const pixel=element?.closest?.(".pixel");
+  if(!pixel||!$("matrix").contains(pixel))return;
+  const index=+pixel.dataset.i;
+  if(tool==="fill"){
+    if(lastPainted===null)paint(index);
+    lastPainted=index;
+    return;
+  }
+  if(index===lastPainted)return;
+  if(lastPainted===null)paint(index);
+  else paintLine(lastPainted,index);
+  lastPainted=index;
+}
+function paintLine(from,to){
+  let x0=from%W,y0=Math.floor(from/W),x1=to%W,y1=Math.floor(to/W);
+  const dx=Math.abs(x1-x0),sx=x0<x1?1:-1,dy=-Math.abs(y1-y0),sy=y0<y1?1:-1;
+  let error=dx+dy;
+  while(true){
+    paint(y0*W+x0);
+    if(x0===x1&&y0===y1)break;
+    const twice=2*error;
+    if(twice>=dy){error+=dy;x0+=sx}
+    if(twice<=dx){error+=dx;y0+=sy}
+  }
+}
+function scheduleProjectRefresh(){
+  clearTimeout(refreshTimer);
+  refreshTimer=setTimeout(flushProjectRefresh,90);
+}
+function flushProjectRefresh(){
+  clearTimeout(refreshTimer);refreshTimer=null;
+  drawFrames();saveDraft();
 }
 function draw(){
   [...$("matrix").children].forEach((pixel,i)=>pixel.style.background=project.frames[active][i]);
@@ -123,7 +177,14 @@ function paint(index){
       if(y)queue.push(point-W);
       if(y<H-1)queue.push(point+W);
     }
-  }else frame[index]=next;
+  }else{
+    if(frame[index]===next)return;
+    frame[index]=next;
+    const cell=$("matrix").children[index];
+    if(cell)cell.style.background=next;
+    scheduleProjectRefresh();
+    return;
+  }
   draw();
 }
 function drawFrames(){
