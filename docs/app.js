@@ -20,6 +20,17 @@ function setConnected(value,label=""){
   ["sendFrame","uploadShow","sendVibe"].forEach(id=>$(id).disabled=!value);
   setStatus(value?"Connected via "+label:"Not connected",value);
 }
+async function probeDeviceStatus(){
+  let statusReply;
+  for(let attempt=0;attempt<2&&!statusReply;attempt++){
+    try{statusReply=await sendCommand({op:"get_status"},0,0,5000)}
+    catch(error){if(!attempt)await new Promise(resolve=>setTimeout(resolve,500));else throw error}
+  }
+  if(statusReply?.firmware)appendTransportLog(`Firmware ${statusReply.firmware}, power cap ${statusReply.powerLimitMa||"?"} mA`);
+  if($("powerProfile")?.value==="safe")await sendCommand({powerLimitMa:750},0,0,5000);
+  return statusReply;
+}
+
 async function connect(){
   if(!navigator.bluetooth){setStatus("Web Bluetooth is unavailable here.",false,true);return}
   try{
@@ -36,6 +47,7 @@ async function connect(){
     });
     activeTransport="ble";
     setConnected(true,device?.name||"Bluetooth");
+    await probeDeviceStatus();
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
 async function connectUsb(){
@@ -43,12 +55,12 @@ async function connectUsb(){
   try{
     serialPort=await navigator.serial.requestPort();
     await serialPort.open({baudRate:115200});
-    await serialPort.setSignals({dataTerminalReady:true,requestToSend:false});
+    await new Promise(resolve=>setTimeout(resolve,1800));
     serialWriter=serialPort.writable.getWriter();
     serialReadTask=readUsbLoop(serialPort);
     activeTransport="usb";
     setConnected(true,"USB");
-    await new Promise(resolve=>setTimeout(resolve,2000));
+    await probeDeviceStatus();
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
 async function disconnectTransport(){
@@ -1675,6 +1687,17 @@ const JSON_TEMPLATES = {
     ]
   }
 };
+
+if(Array.isArray(window.LED_TEMPLATE_CATALOG)){
+  for(const item of window.LED_TEMPLATE_CATALOG){
+    JSON_TEMPLATES[item.id]=item.program;
+    if(!$("jsonTemplate").querySelector(`option[value="${item.id}"]`)){
+      const option=document.createElement("option");
+      option.value=item.id;option.textContent=`${item.category}: ${item.name}`;
+      $("jsonTemplate").append(option);
+    }
+  }
+}
 
 $("jsonTemplate").onchange = (e) => {
   const key = e.target.value;

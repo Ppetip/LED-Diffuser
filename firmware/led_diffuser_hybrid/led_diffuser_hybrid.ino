@@ -22,6 +22,12 @@
 #define MAX_SHOW_FRAMES 24
 #define FRAME_BINARY_SIZE (NUM_LEDS * 3)
 #define PIXEL_HEX_LENGTH (NUM_LEDS * 6)
+#define FIRMWARE_VERSION "2.1.0"
+#define PROTOCOL_VERSION 2
+#define DEFAULT_POWER_LIMIT_MA 750
+#define MIN_POWER_LIMIT_MA 250
+#define MAX_POWER_LIMIT_MA 10000
+#define BLE_NOTIFY_CHUNK_SIZE 160
 
 const char *AP_SSID = "LED-Diffuser";
 const char *AP_PASS = "LEDLEDLED";
@@ -44,6 +50,7 @@ struct DeviceState {
   uint8_t hue = 180;
   uint8_t saturation = 210;
   bool motion = true;
+  uint16_t powerLimitMa = DEFAULT_POWER_LIMIT_MA;
 } deviceState;
 
 bool mpuReady = false;
@@ -189,6 +196,7 @@ void loadState() {
   deviceState.hue = preferences.getUChar("hue", deviceState.hue);
   deviceState.saturation = preferences.getUChar("saturation", deviceState.saturation);
   deviceState.motion = preferences.getBool("motion", deviceState.motion);
+  deviceState.powerLimitMa = constrain(preferences.getUShort("powerMa", deviceState.powerLimitMa), (uint16_t)MIN_POWER_LIMIT_MA, (uint16_t)MAX_POWER_LIMIT_MA);
   showFrameMs = preferences.getUShort("frameMs", showFrameMs);
   if (!loadShowFile()) {
     showCount = 0;
@@ -206,6 +214,7 @@ void saveState() {
   preferences.putUChar("hue", deviceState.hue);
   preferences.putUChar("saturation", deviceState.saturation);
   preferences.putBool("motion", deviceState.motion);
+  preferences.putUShort("powerMa", deviceState.powerLimitMa);
   preferences.putUChar("showCount", showCount);
   preferences.putUShort("frameMs", showFrameMs);
 }
@@ -255,7 +264,7 @@ void readMpu() {
   Wire.beginTransmission(MPU_ADDR);
   Wire.write(0x3B);
   if (Wire.endTransmission(false) != 0) return;
-  if (Wire.requestFrom(MPU_ADDR, 6, true) != 6) return;
+  if (Wire.requestFrom((uint8_t)MPU_ADDR, (size_t)6, true) != 6) return;
   int16_t ax = (Wire.read() << 8) | Wire.read();
   int16_t ay = (Wire.read() << 8) | Wire.read();
   Wire.read(); Wire.read();
@@ -406,6 +415,8 @@ String stateJson() {
   doc["saturation"] = deviceState.saturation; doc["motion"] = deviceState.motion;
   doc["mpu"] = mpuReady; doc["ip"] = WiFi.softAPIP().toString();
   doc["showCount"] = showCount; doc["frameMs"] = showFrameMs;
+  doc["firmware"] = FIRMWARE_VERSION; doc["protocol"] = PROTOCOL_VERSION;
+  doc["powerLimitMa"] = deviceState.powerLimitMa;
   String out; serializeJson(doc, out); return out;
 }
 
@@ -420,6 +431,19 @@ bool applyCommand(const String &json, String &reply) {
   }
 
   const char *operation = doc["op"] | "";
+  if (!strcmp(operation, "get_status")) {
+    JsonDocument status;
+    status["ok"] = 1; status["op"] = "status";
+    status["firmware"] = FIRMWARE_VERSION; status["protocol"] = PROTOCOL_VERSION;
+    status["width"] = VIEW_W; status["height"] = VIEW_H; status["maxFrames"] = MAX_SHOW_FRAMES;
+    status["brightness"] = deviceState.brightness; status["powerLimitMa"] = deviceState.powerLimitMa;
+    status["freeHeap"] = ESP.getFreeHeap(); status["showCount"] = showCount; status["frameMs"] = showFrameMs;
+    status["upload"]["active"] = uploadActive; status["upload"]["have"] = uploadReceived; status["upload"]["want"] = uploadExpected;
+    status["caps"]["ble"] = true; status["caps"]["usb"] = true; status["caps"]["wifi"] = true;
+    status["caps"]["showUpload"] = true; status["caps"]["supportsOTA"] = false;
+    serializeJson(status, reply);
+    return true;
+  }
   if (!strcmp(operation, "show_begin")) {
     uint8_t expected = constrain(doc["count"].as<int>(), 1, MAX_SHOW_FRAMES);
     uint16_t frameMs = constrain(doc["frameMs"].as<int>(), 50, 5000);
@@ -462,7 +486,6 @@ bool applyCommand(const String &json, String &reply) {
       return false;
     }
     size_t written = showUploadFile.write(binary, FRAME_BINARY_SIZE);
-    showUploadFile.flush();
     if (written != FRAME_BINARY_SIZE) {
       reply = "{\"ok\":0,\"error\":\"show storage write failed\"}";
       Serial.printf("[SHOW][ERROR] Frame %d wrote %u/%u bytes\n", index, written, FRAME_BINARY_SIZE);
@@ -470,10 +493,9 @@ bool applyCommand(const String &json, String &reply) {
       showUploadFile.close();
       return false;
     }
-    showFrames[index] = pixels;
     uploadReceived++;
     reply = "{\"ok\":1,\"i\":" + String(index) + "}";
-    Serial.printf("[SHOW] FRAME %d/%u saved (%u bytes), heap: %lu\n", index + 1, uploadExpected, written, ESP.getFreeHeap());
+    Serial.println("[SHOW] Frame saved");
     return true;
   }
 
@@ -490,8 +512,12 @@ bool applyCommand(const String &json, String &reply) {
       uploadActive = false;
       return false;
     }
-    showCount = uploadExpected;
-    showFrameMs = uploadFrameMs;
+    if (!loadShowFile() || showCount != uploadExpected || showFrameMs != uploadFrameMs) {
+      reply = "{\"ok\":0,\"error\":\"show read-back verification failed\"}";
+      uploadActive = false;
+      Serial.println("[SHOW][ERROR] Activated show failed read-back verification");
+      return false;
+    }
     deviceState.mode = "show";
     FastLED.setBrightness(deviceState.brightness);
     saveState();
@@ -519,6 +545,11 @@ bool applyCommand(const String &json, String &reply) {
   if (doc["hue"].is<int>()) deviceState.hue = doc["hue"].as<int>();
   if (doc["saturation"].is<int>()) deviceState.saturation = constrain(doc["saturation"].as<int>(), 0, 255);
   if (doc["motion"].is<bool>()) deviceState.motion = doc["motion"].as<bool>();
+  if (doc["powerLimitMa"].is<int>()) {
+    deviceState.powerLimitMa = constrain(doc["powerLimitMa"].as<int>(), MIN_POWER_LIMIT_MA, MAX_POWER_LIMIT_MA);
+    FastLED.setMaxPowerInVoltsAndMilliamps(5, deviceState.powerLimitMa);
+    Serial.printf("[POWER] LED current limit set to %u mA\n", deviceState.powerLimitMa);
+  }
   if (doc["frameMs"].is<int>()) showFrameMs = constrain(doc["frameMs"].as<int>(), 50, 5000);
 
   if (doc["pixels"].is<const char*>()) {
@@ -553,8 +584,12 @@ bool applyCommand(const String &json, String &reply) {
 void notifyBleReply(const String &reply) {
   if (!txCharacteristic) return;
   String line = reply + "\n";
-  txCharacteristic->setValue(line.c_str());
-  txCharacteristic->notify();
+  for (size_t offset = 0; offset < line.length(); offset += BLE_NOTIFY_CHUNK_SIZE) {
+    String chunk = line.substring(offset, min(offset + BLE_NOTIFY_CHUNK_SIZE, line.length()));
+    txCharacteristic->setValue(chunk.c_str());
+    txCharacteristic->notify();
+    delay(4);
+  }
 }
 
 void handleUsbSerial() {
@@ -646,11 +681,11 @@ void setupBle() {
   NimBLEDevice::init("LED-Diffuser");
   NimBLEDevice::setMTU(185);
   NimBLEServer *bleServer = NimBLEDevice::createServer();
+  bleServer->advertiseOnDisconnect(true);
   NimBLEService *service = bleServer->createService(BLE_SERVICE);
   txCharacteristic = service->createCharacteristic(BLE_TX, NIMBLE_PROPERTY::NOTIFY);
   NimBLECharacteristic *rx = service->createCharacteristic(BLE_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   rx->setCallbacks(new RxCallbacks());
-  service->start();
   NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
   advertising->setName("LED-Diffuser");
   advertising->addServiceUUID(BLE_SERVICE);
@@ -675,6 +710,9 @@ void setupWeb() {
 }
 
 void setup() {
+  pinMode(LED_PIN, OUTPUT);
+  digitalWrite(LED_PIN, LOW);
+  delay(25);
   Serial.setRxBufferSize(4096);
   Serial.begin(115200);
   serialBuffer.reserve(2048);
@@ -687,11 +725,13 @@ void setup() {
   loadState();
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(deviceState.brightness);
+  FastLED.setMaxPowerInVoltsAndMilliamps(5, deviceState.powerLimitMa);
   FastLED.clear(true);
   Wire.begin(SDA_PIN, SCL_PIN);
   mpuReady = startMpu();
   setupBle();
   setupWeb();
+  Serial.printf("[BOOT] LED Diffuser firmware %s, protocol %u, power cap %u mA, reset=%s\n", FIRMWARE_VERSION, PROTOCOL_VERSION, deviceState.powerLimitMa, esp_reset_reason() == ESP_RST_BROWNOUT ? "brownout" : "other");
   Serial.println("LED Diffuser ready");
   Serial.println(WiFi.softAPIP());
   Serial.println(mpuReady ? "MPU6050 ready" : "MPU6050 not found; tilt mode remains centered");

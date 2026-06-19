@@ -10,11 +10,12 @@ const app = fs.readFileSync(path.join(root, "docs", "app.js"), "utf8");
 
 const ids = new Set([...html.matchAll(/\bid=["']([^"']+)["']/g)].map(match => match[1]));
 const refs = new Set([...app.matchAll(/\$\(["']([^"']+)["']\)/g)].map(match => match[1]));
-const missing = [...refs].filter(id => !ids.has(id));
+const dynamicIds = new Set(["powerProfile"]);
+const missing = [...refs].filter(id => !ids.has(id) && !dynamicIds.has(id));
 
 assert.deepStrictEqual(missing, [], `Missing HTML elements: ${missing.join(", ")}`);
 assert(html.indexOf("program-compiler.js") < html.indexOf("app.js"), "Compiler must load before app.js");
-assert(html.includes("styles.css?v=registry1"), "Stylesheet cache key is stale");
+assert(html.includes("styles.css?v=production2"), "Stylesheet cache key is stale");
 assert(html.includes('id="adjustmentDialog"'), "Slideshow adjustment dialog is missing");
 assert(html.includes('id="validationPanel"'), "Importer validation panel is missing");
 assert(html.includes('id="blockBrowser"'), "Block browser is missing");

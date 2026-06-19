@@ -6,6 +6,8 @@ ESP32-C3 firmware for a 280-pixel diffuser matrix with both:
 - A Wi-Fi access point and browser dashboard
 - Aura, rain, scrolling text, and MPU6050 tilt-reactive modes
 - A shared JSON command format so BLE, the website, and future AI tools use the same controls
+- A 750 mA default LED power budget with device status reporting
+- Everyday and Studio interfaces with named palettes and 25 curated shows
 
 ## Hardware defaults
 
@@ -117,3 +119,9 @@ USB serial and Bluetooth use the same newline-delimited JSON command parser.
 A phone may be able to power the ESP32 controller over USB-C, but it should not power a 280-pixel LED matrix. The matrix can require many amps and may overload or shut down the phone's USB port. Keep the LEDs on a correctly sized external 5 V supply and connect its ground to ESP32 ground.
 
 Browser-based wired serial control is intended for desktop Chrome/Edge. Phone browser USB serial support is inconsistent; use BLE on compatible Android devices or the ESP32 Wi-Fi page at `http://192.168.4.1`. iPhone/iPad should use the Wi-Fi path.
+
+## Firmware updates
+
+Animation programs can be edited and sent over BLE. Firmware source must still be compiled before it is installed.
+
+The device reports `caps.supportsOTA` as false until signed dual-partition updates and rollback are implemented. See [the firmware update plan](docs/firmware-update-plan.md).

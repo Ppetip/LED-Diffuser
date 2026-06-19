@@ -1,8 +1,9 @@
 const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
+const path = require("path");
 
-const source = fs.readFileSync("LED-Diffuser/docs/program-compiler.js", "utf8");
+const source = fs.readFileSync(path.join(__dirname, "..", "docs", "program-compiler.js"), "utf8");
 const context = {
   console,
   structuredClone,

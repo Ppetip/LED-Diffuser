@@ -1,0 +1,33 @@
+"use strict";
+const assert=require("assert");
+const fs=require("fs");
+const path=require("path");
+const vm=require("vm");
+const root=path.resolve(__dirname,"..");
+const context={console,structuredClone,window:null,drawCharOnGrid(grid,character,x,y,color){if(x>=0&&x<28&&y>=0&&y<10&&character!==" ")grid[y*28+x]=color}};
+context.window=context;
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(path.join(root,"docs","program-compiler.js"),"utf8"),context);
+vm.runInContext(fs.readFileSync(path.join(root,"docs","template-catalog.js"),"utf8"),context);
+const compiler=context.LEDCompiler;
+const catalog=context.LED_TEMPLATE_CATALOG;
+assert.strictEqual(catalog.length,25,"catalog must contain exactly 25 shows");
+assert.strictEqual(new Set(catalog.map(item=>item.id)).size,25,"catalog IDs must be unique");
+const categories=new Set(["Calm","Nature","City","Abstract","Playful"]);
+for(const item of catalog){
+  assert(categories.has(item.category),`${item.id}: invalid category`);
+  assert(item.description&&item.preview?.background&&item.accessibility,`${item.id}: incomplete gallery metadata`);
+  assert.strictEqual(item.accessibility.flash,false,`${item.id}: unexpected flashing template`);
+  assert(item.program.frameCount<=24&&item.program.frameCount>0,`${item.id}: invalid frame count`);
+  assert(item.program.frameMs>=50&&item.program.frameMs<=5000,`${item.id}: invalid frame interval`);
+  assert(item.program.brightness<=.8,`${item.id}: unsafe catalog brightness`);
+  for(const layer of item.program.layers)assert(compiler.registry[layer.type],`${item.id}: unsupported block ${layer.type}`);
+  const first=compiler.compileProgram(item.program,{partial:false});
+  const second=compiler.compileProgram(item.program,{partial:false});
+  assert.strictEqual(first.errors.length,0,`${item.id}: ${JSON.stringify(first.errors)}`);
+  assert.strictEqual(first.frames.length,item.program.frameCount,`${item.id}: wrong compiled frame count`);
+  assert(first.frames.every(frame=>frame.length===280),`${item.id}: wrong frame size`);
+  assert(first.frames.flat().every(color=>/^#[0-9a-f]{6}$/.test(color)),`${item.id}: invalid color output`);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(first.frames)),JSON.parse(JSON.stringify(second.frames)),`${item.id}: compile is not deterministic`);
+}
+console.log("PASS: 25 deterministic, power-conscious catalog shows compile to exact 28x10 frames");
