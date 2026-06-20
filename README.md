@@ -80,6 +80,17 @@ Other examples:
 The firmware intentionally constrains output to low-resolution, abstract animation. AI-generated ideas should become parameters or 28x10 frames, not large images.
 
 
+## Consumer setup flow
+
+1. Plug in the panel; the first built-in scene starts immediately.
+2. Use the frame button or digital touch module to change vibes and brightness.
+3. Join Wi-Fi network `LED-Diffuser` with password `LEDLEDLED`.
+4. Open `http://192.168.4.1` for the onboard buyer controls.
+5. Use the hosted [Everyday panel](https://ppetip.github.io/LED-Diffuser/panel.html) for routines and the expanded catalog.
+6. Use [Studio](https://ppetip.github.io/LED-Diffuser/studio-v2.html) only for pixel, JSON, AI-prompt, and timeline editing.
+
+The intended product QR should encode the panel Wi-Fi credentials and direct the buyer to the printed setup card. The onboard page remains available without internet.
+
 ## Use it as a wall display
 
 The intended installed workflow is:
