@@ -830,9 +830,9 @@ const char PAGE[] PROGMEM = R"HTML(
 <button class=primary onclick=save()>Save to panel</button><p id=status>Connecting...</p>
 <p class=note>Frame control: tap next, double tap previous, long press brightness. Hold while powering on for setup mode. Detailed photos and small text are not suited to this display.</p>
 </main><script>
-let hue=145;const q=id=>document.getElementById(id);async function post(data){const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok||!out.ok)throw Error(out.error||'Command failed');return out}
-async function scene(op){try{const out=await post({op});status.textContent='Scene changed';if(out.state)mode.value=out.state.mode}catch(e){status.textContent=e.message}}
-async function save(){try{await post({mode:mode.value,text:text.value||'VIBE',brightness:+brightness.value,speed:+speed.value,hue,saturation:220,motion:true});status.textContent='Saved. The panel will keep playing without this page.'}catch(e){status.textContent=e.message}}
+let hue=145;const q=id=>document.getElementById(id);const post=data=>fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}).then(r=>r.json().then(out=>{if(!r.ok||!out.ok)throw Error(out.error||'Command failed');return out}));
+const scene=op=>post({op}).then(out=>{status.textContent='Scene changed';if(out.state)mode.value=out.state.mode}).catch(e=>status.textContent=e.message);
+const save=()=>post({mode:mode.value,text:text.value||'VIBE',brightness:+brightness.value,speed:+speed.value,hue,saturation:220,motion:true}).then(()=>status.textContent='Saved. The panel will keep playing without this page.').catch(e=>status.textContent=e.message);
 fetch('/api/state').then(r=>r.json()).then(s=>{mode.value=s.mode;brightness.value=s.brightness;bv.textContent=s.brightness;speed.value=s.speed;sv.textContent=s.speed;text.value=s.text||'';status.textContent=(s.setupMode?'Setup mode / ':'')+'Firmware '+s.firmware+' / '+s.showCount+' saved frames'}).catch(e=>status.textContent=e.message)
 </script></body></html>)HTML";
 
