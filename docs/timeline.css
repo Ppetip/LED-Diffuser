@@ -1,0 +1,6 @@
+.timeline-tools{display:grid;gap:12px}.timeline-head{display:flex;align-items:center;justify-content:space-between}.timeline-head h2{margin:0}
+.timeline-actions{display:flex;flex-wrap:wrap;align-items:end;gap:8px}.timeline-actions>*{flex:1 1 120px}.timeline-actions label{margin:0}
+#uploadPreviewDialog{width:min(680px,calc(100vw - 24px));border:1px solid var(--line);border-radius:16px;background:#10131b;color:var(--text)}
+#uploadPreviewCanvas{display:block;width:100%;height:auto;image-rendering:pixelated;background:#000;border-radius:10px}
+body[data-ui-mode=everyday] .timeline-tools{display:none}
+@media(max-width:600px){.timeline-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.timeline-actions>*{min-width:0}}
