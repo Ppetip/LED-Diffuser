@@ -1,0 +1,15 @@
+name: Studio tools CI
+on:
+  push:
+    branches: [codex/consumer-panel]
+  pull_request:
+jobs:
+  studio-tools:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check docs/timeline-tools.js
+      - run: node verify/test_timeline_tools.js
