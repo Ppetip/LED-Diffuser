@@ -1,0 +1,11 @@
+.everyday-controls{display:grid;gap:14px}
+.everyday-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.everyday-head h2{margin:0 0 3px}.ambient-only{padding:6px 9px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font-size:.72rem;white-space:nowrap}
+.everyday-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.everyday-grid .wide{grid-column:1/-1}
+.everyday-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+body[data-ui-mode=everyday] .sidebar>.section{display:none}
+body[data-ui-mode=studio] .everyday-controls,body[data-ui-mode=studio] .routine-panel{display:none}
+.routine-panel{display:grid;gap:12px;padding-top:14px;border-top:1px solid var(--line)}
+.routine-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.routine-grid .wide{grid-column:1/-1}
+.routine-status{min-height:1.5em;color:var(--muted);font-size:.82rem}
+@media(max-width:560px){.everyday-head{display:grid}.everyday-grid,.routine-grid{grid-template-columns:1fr}.everyday-actions{grid-template-columns:1fr}.everyday-grid .wide,.routine-grid .wide{grid-column:auto}}
