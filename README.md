@@ -23,6 +23,20 @@ The editor/view is treated as 28 pixels wide x 10 pixels high. Change the pin co
 
 Use a separate 5 V LED supply with shared ground. Keep the initial brightness low.
 
+## Standalone controls
+
+The panel starts a built-in ambient scene immediately after first boot and remembers the selected scene.
+
+- Single tap: next vibe
+- Double tap: previous vibe
+- Long press: cycle safe brightness levels
+- Hold during boot for at least 1.2 seconds: enter setup mode
+- Hold during boot for 5 seconds: reserved factory-reset gesture
+
+GPIO 4 uses the ESP32-C3 internal pull-up. Wire a momentary button between GPIO 4 and ground. A capacitive touch board can be used if it provides an active-low digital output; do not connect a raw capacitive electrode directly because ESP32-C3 does not provide the touch peripheral used by older ESP32 boards.
+
+The MPU6050 adds tilt-driven gradients, shake pulses, and gravity particles. It is optional: the physical control input remains the primary no-phone control.
+
 ## Build
 
 Open `firmware/led_diffuser_hybrid/led_diffuser_hybrid.ino` and install:
@@ -65,6 +79,17 @@ Other examples:
 
 The firmware intentionally constrains output to low-resolution, abstract animation. AI-generated ideas should become parameters or 28x10 frames, not large images.
 
+
+## Consumer setup flow
+
+1. Plug in the panel; the first built-in scene starts immediately.
+2. Use the frame button or digital touch module to change vibes and brightness.
+3. Join Wi-Fi network `LED-Diffuser` with password `LEDLEDLED`.
+4. Open `http://192.168.4.1` for the onboard buyer controls.
+5. Use the hosted [Everyday panel](https://ppetip.github.io/LED-Diffuser/panel.html) for routines and the expanded catalog.
+6. Use [Studio](https://ppetip.github.io/LED-Diffuser/studio-v2.html) only for pixel, JSON, AI-prompt, and timeline editing.
+
+The intended product QR should encode the panel Wi-Fi credentials and direct the buyer to the printed setup card. The onboard page remains available without internet.
 
 ## Use it as a wall display
 

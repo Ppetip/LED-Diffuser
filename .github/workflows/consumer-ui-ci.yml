@@ -1,0 +1,16 @@
+name: Consumer UI CI
+on:
+  push:
+    branches: [codex/consumer-panel]
+  pull_request:
+jobs:
+  consumer-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --check docs/everyday-controls.js
+      - run: node --check docs/routine-engine.js
+      - run: node verify/test_consumer_ui.js
