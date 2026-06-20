@@ -1,0 +1,28 @@
+name: Consumer panel CI
+
+on:
+  push:
+    branches:
+      - codex/consumer-panel
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install platformio
+      - name: JavaScript regression tests
+        run: |
+          node verify/test_program_compiler.js
+          node verify/test_template_catalog.js
+          node verify/test_studio_static.js
+          node verify/test_consumer_firmware.js
+      - name: Firmware build
+        run: platformio run
