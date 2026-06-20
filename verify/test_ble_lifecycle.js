@@ -13,6 +13,8 @@ const createService = position("bleServer->createService(BLE_SERVICE)");
 const startServer = position("bleServer->start()");
 const startAdvertising = position("advertising->start()");
 position("bleServer->advertiseOnDisconnect(true)");
+position("#define BLE_NOTIFY_CHUNK_SIZE 20");
+position("[BLE][ERROR] Notification delivery failed");
 
 if (!(createServer < createService && createService < startServer && startServer < startAdvertising)) {
   throw new Error("BLE GATT server must start after service creation and before advertising");
