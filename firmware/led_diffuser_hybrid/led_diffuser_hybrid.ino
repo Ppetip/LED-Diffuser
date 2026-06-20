@@ -604,6 +604,16 @@ bool applyCommand(const String &json, String &reply) {
     serializeJson(status, reply);
     return true;
   }
+  if (!strcmp(operation, "next_scene")) {
+    changeScene(1);
+    reply = "{\"ok\":1,\"state\":" + stateJson() + "}";
+    return true;
+  }
+  if (!strcmp(operation, "previous_scene")) {
+    changeScene(-1);
+    reply = "{\"ok\":1,\"state\":" + stateJson() + "}";
+    return true;
+  }
   if (!strcmp(operation, "show_begin")) {
     uint8_t expected = constrain(doc["count"].as<int>(), 1, MAX_SHOW_FRAMES);
     uint16_t frameMs = constrain(doc["frameMs"].as<int>(), 50, 5000);
@@ -808,34 +818,23 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
 };
 
 const char PAGE[] PROGMEM = R"HTML(
-<!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
-<title>LED Diffuser</title><style>
-body{font:16px system-ui;background:#111827;color:#f8fafc;max-width:720px;margin:auto;padding:22px}
-main{background:#1f2937;padding:20px;border-radius:18px}h1{margin-top:0}label{display:block;margin:14px 0}
-input,select,button,textarea{width:100%;box-sizing:border-box;padding:12px;border:0;border-radius:10px;margin-top:5px}
-button{background:#67e8f9;color:#082f49;font-weight:700;cursor:pointer}textarea{min-height:120px;background:#0f172a;color:#e2e8f0}
-.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.muted{color:#94a3b8;font-size:13px}
-</style><main><h1>LED Diffuser</h1><p class=muted>Wi-Fi + Bluetooth share the same animation state.</p>
-<div class=row><label>Mode<select id=mode><option>aura</option><option>rain</option><option>text</option><option>tilt</option></select></label>
-<label>Direction<select id=direction><option>left</option><option>right</option><option>up</option><option>down</option></select></label></div>
-<div class=row><label>Font<select id=font><option>bold</option><option>standard</option></select></label>
-<label>Text<input id=text value=VIBE maxlength=32></label></div>
-<div class=row><label>Brightness<input id=brightness type=range min=1 max=160 value=35></label>
-<label>Speed ms<input id=speed type=number min=35 max=2000 value=100></label></div>
-<div class=row><label>Hue<input id=hue type=range min=0 max=255 value=180></label>
-<label>Saturation<input id=saturation type=range min=0 max=255 value=210></label></div>
-<label><input id=motion type=checkbox checked style="width:auto"> MPU motion reaction</label>
-<button onclick=send()>Apply vibe</button>
-<label>JSON Console Command<textarea id=jsonConsole>{"mode":"text","text":"HELLO","font":"bold","direction":"down","speed":150}</textarea></label>
-<button onclick=sendJson()>Send JSON</button>
-<label>AI animation prompt<textarea id=prompt>Make a calm ambient LED vibe using only mode, hue, saturation, speed, direction, motion, and short readable text. The display is 28x10 pixels. Prefer gradients and motion over literal pictures. Return one compact JSON object only.</textarea></label>
-<button onclick="navigator.clipboard.writeText(prompt.value)">Copy AI prompt</button><pre id=status></pre></main>
-<script>
-const ids=["mode","direction","font","text","brightness","speed","hue","saturation","motion"];
-const send=()=>{let o={};ids.forEach(k=>o[k]=k==="motion"?window[k].checked:(["brightness","speed","hue","saturation"].includes(k)?+window[k].value:window[k].value));fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(o)}).then(r=>r.text()).then(t=>status.textContent=t)};
-const sendJson=()=>{fetch("/api/command",{method:"POST",headers:{"Content-Type":"application/json"},body:jsonConsole.value}).then(r=>r.text()).then(t=>status.textContent=t)};
-fetch("/api/state").then(r=>r.json()).then(s=>{ids.forEach(k=>{if(s[k]!==undefined)(k==="motion"?window[k].checked=s[k]:window[k].value=s[k])});status.textContent=JSON.stringify(s,null,2)})
-</script>)HTML";
+<!doctype html><html><head><meta name=viewport content="width=device-width,initial-scale=1"><title>LED Diffuser</title><style>
+:root{color-scheme:dark}body{font:16px system-ui;background:#090b12;color:#f8fafc;max-width:680px;margin:auto;padding:18px}main{display:grid;gap:16px;background:#151925;padding:18px;border:1px solid #2a3142;border-radius:18px}h1,h2,p{margin:0}label{display:grid;gap:5px}.grid,.actions,.palette{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}input,select,button{box-sizing:border-box;width:100%;min-height:44px;padding:10px;border:1px solid #394258;border-radius:10px;background:#202638;color:#fff}button{font-weight:700}.primary{background:#67e8d3;color:#06221d}.palette{grid-template-columns:repeat(6,1fr)}.palette button{min-width:0;padding:0}.note,#status{color:#aeb8ce;font-size:13px}@media(max-width:520px){.grid{grid-template-columns:1fr}}
+</style></head><body><main><div><h1>LED Diffuser</h1><p class=note>Ambient scenes, simple controls, no account required.</p></div>
+<div class=actions><button onclick=scene('previous_scene')>Previous vibe</button><button onclick=scene('next_scene')>Next vibe</button></div>
+<div class=grid><label>Vibe<select id=mode><option value=aura>Aura</option><option value=motion_gradient>Motion gradient</option><option value=rain>Rain</option><option value=gravity>Gravity particles</option><option value=tilt>Tilt orb</option><option value=text>Scrolling text</option><option value=show>Saved show</option></select></label>
+<label>Brightness <span id=bv>35</span><input id=brightness type=range min=1 max=80 value=35 oninput="bv.textContent=value"></label>
+<label>Speed <span id=sv>150</span> ms<input id=speed type=range min=50 max=1000 step=10 value=150 oninput="sv.textContent=value"></label>
+<label>Message<input id=text maxlength=32 placeholder="Short large text"></label></div>
+<div><h2>Palette</h2><div class=palette><button style="background:#38d9d6" onclick="hue=145">A</button><button style="background:#4d96ff" onclick="hue=195">O</button><button style="background:#9d8cff" onclick="hue=225">L</button><button style="background:#ff477e" onclick="hue=245">P</button><button style="background:#ff9f1c" onclick="hue=24">S</button><button style="background:#8cff98" onclick="hue=105">F</button></div></div>
+<button class=primary onclick=save()>Save to panel</button><p id=status>Connecting...</p>
+<p class=note>Frame control: tap next, double tap previous, long press brightness. Hold while powering on for setup mode. Detailed photos and small text are not suited to this display.</p>
+</main><script>
+let hue=145;const q=id=>document.getElementById(id);async function post(data){const r=await fetch('/api/command',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const out=await r.json();if(!r.ok||!out.ok)throw Error(out.error||'Command failed');return out}
+async function scene(op){try{const out=await post({op});status.textContent='Scene changed';if(out.state)mode.value=out.state.mode}catch(e){status.textContent=e.message}}
+async function save(){try{await post({mode:mode.value,text:text.value||'VIBE',brightness:+brightness.value,speed:+speed.value,hue,saturation:220,motion:true});status.textContent='Saved. The panel will keep playing without this page.'}catch(e){status.textContent=e.message}}
+fetch('/api/state').then(r=>r.json()).then(s=>{mode.value=s.mode;brightness.value=s.brightness;bv.textContent=s.brightness;speed.value=s.speed;sv.textContent=s.speed;text.value=s.text||'';status.textContent=(s.setupMode?'Setup mode / ':'')+'Firmware '+s.firmware+' / '+s.showCount+' saved frames'}).catch(e=>status.textContent=e.message)
+</script></body></html>)HTML";
 
 void setupBle() {
   NimBLEDevice::init("LED-Diffuser");
