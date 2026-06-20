@@ -686,6 +686,11 @@ void setupBle() {
   txCharacteristic = service->createCharacteristic(BLE_TX, NIMBLE_PROPERTY::NOTIFY);
   NimBLECharacteristic *rx = service->createCharacteristic(BLE_RX, NIMBLE_PROPERTY::WRITE | NIMBLE_PROPERTY::WRITE_NR);
   rx->setCallbacks(new RxCallbacks());
+
+  // NimBLE 2.x starts services when the server starts. Advertising alone is not enough.
+  bleServer->start();
+  Serial.println("BLE GATT server started");
+
   NimBLEAdvertising *advertising = NimBLEDevice::getAdvertising();
   advertising->setName("LED-Diffuser");
   advertising->addServiceUUID(BLE_SERVICE);
