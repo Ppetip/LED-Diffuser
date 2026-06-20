@@ -22,12 +22,18 @@
 #define MAX_SHOW_FRAMES 24
 #define FRAME_BINARY_SIZE (NUM_LEDS * 3)
 #define PIXEL_HEX_LENGTH (NUM_LEDS * 6)
-#define FIRMWARE_VERSION "2.1.0"
+#define FIRMWARE_VERSION "2.2.0"
 #define PROTOCOL_VERSION 2
 #define DEFAULT_POWER_LIMIT_MA 750
 #define MIN_POWER_LIMIT_MA 250
 #define MAX_POWER_LIMIT_MA 10000
 #define BLE_NOTIFY_CHUNK_SIZE 160
+#define CONTROL_PIN 4
+#define BUTTON_DEBOUNCE_MS 35
+#define DOUBLE_TAP_MS 360
+#define LONG_PRESS_MS 900
+#define FACTORY_HOLD_MS 5000
+#define GRAVITY_PARTICLES 18
 
 const char *AP_SSID = "LED-Diffuser";
 const char *AP_PASS = "LEDLEDLED";
@@ -51,10 +57,19 @@ struct DeviceState {
   uint8_t saturation = 210;
   bool motion = true;
   uint16_t powerLimitMa = DEFAULT_POWER_LIMIT_MA;
+  uint8_t sceneIndex = 0;
 } deviceState;
 
 bool mpuReady = false;
-float tiltX = 0, tiltY = 0;
+bool setupMode = false;
+float tiltX = 0, tiltY = 0, accelZ = 1.0f, shakeEnergy = 0;
+uint8_t motionPulse = 0;
+uint32_t lastShakeAt = 0;
+bool buttonStable = HIGH, buttonRaw = HIGH, longPressHandled = false;
+uint32_t buttonChangedAt = 0, buttonDownAt = 0, pendingTapAt = 0;
+bool pendingTap = false;
+float particleX[GRAVITY_PARTICLES], particleY[GRAVITY_PARTICLES];
+float particleVX[GRAVITY_PARTICLES], particleVY[GRAVITY_PARTICLES];
 uint32_t lastFrame = 0;
 int16_t textOffset = VIEW_W;
 String bleBuffer;
@@ -197,6 +212,7 @@ void loadState() {
   deviceState.saturation = preferences.getUChar("saturation", deviceState.saturation);
   deviceState.motion = preferences.getBool("motion", deviceState.motion);
   deviceState.powerLimitMa = constrain(preferences.getUShort("powerMa", deviceState.powerLimitMa), (uint16_t)MIN_POWER_LIMIT_MA, (uint16_t)MAX_POWER_LIMIT_MA);
+  deviceState.sceneIndex = preferences.getUChar("scene", deviceState.sceneIndex);
   showFrameMs = preferences.getUShort("frameMs", showFrameMs);
   if (!loadShowFile()) {
     showCount = 0;
@@ -215,8 +231,107 @@ void saveState() {
   preferences.putUChar("saturation", deviceState.saturation);
   preferences.putBool("motion", deviceState.motion);
   preferences.putUShort("powerMa", deviceState.powerLimitMa);
+  preferences.putUChar("scene", deviceState.sceneIndex);
   preferences.putUChar("showCount", showCount);
   preferences.putUShort("frameMs", showFrameMs);
+}
+
+
+struct BuiltInVibe {
+  const char *mode;
+  uint8_t hue;
+  uint8_t saturation;
+  uint16_t speed;
+  bool motion;
+};
+
+const BuiltInVibe BUILT_IN_VIBES[] = {
+  {"aura", 145, 220, 160, true},
+  {"motion_gradient", 195, 235, 120, true},
+  {"rain", 155, 230, 85, true},
+  {"gravity", 35, 245, 70, true},
+  {"aura", 225, 210, 240, true},
+  {"rain", 5, 240, 130, true}
+};
+const uint8_t BUILT_IN_VIBE_COUNT = sizeof(BUILT_IN_VIBES) / sizeof(BUILT_IN_VIBES[0]);
+
+void applyBuiltInVibe(uint8_t index) {
+  deviceState.sceneIndex = index % (BUILT_IN_VIBE_COUNT + (showCount ? 1 : 0));
+  if (showCount && deviceState.sceneIndex == BUILT_IN_VIBE_COUNT) {
+    deviceState.mode = "show";
+  } else {
+    const BuiltInVibe &vibe = BUILT_IN_VIBES[deviceState.sceneIndex % BUILT_IN_VIBE_COUNT];
+    deviceState.mode = vibe.mode;
+    deviceState.hue = vibe.hue;
+    deviceState.saturation = vibe.saturation;
+    deviceState.speed = vibe.speed;
+    deviceState.motion = vibe.motion;
+  }
+  saveState();
+  Serial.printf("[CONTROL] Scene %u: %s\n", deviceState.sceneIndex, deviceState.mode.c_str());
+}
+
+void changeScene(int8_t direction) {
+  int count = BUILT_IN_VIBE_COUNT + (showCount ? 1 : 0);
+  int next = (int)deviceState.sceneIndex + direction;
+  while (next < 0) next += count;
+  applyBuiltInVibe(next % count);
+}
+
+void cycleBrightness() {
+  static const uint8_t LEVELS[] = {18, 32, 50, 72};
+  uint8_t next = LEVELS[0];
+  for (uint8_t level : LEVELS) {
+    if (level > deviceState.brightness) { next = level; break; }
+  }
+  deviceState.brightness = next;
+  FastLED.setBrightness(deviceState.brightness);
+  saveState();
+  Serial.printf("[CONTROL] Brightness %u\n", deviceState.brightness);
+}
+
+void handleControlButton() {
+  uint32_t now = millis();
+  bool raw = digitalRead(CONTROL_PIN);
+  if (raw != buttonRaw) {
+    buttonRaw = raw;
+    buttonChangedAt = now;
+  }
+  if (now - buttonChangedAt >= BUTTON_DEBOUNCE_MS && raw != buttonStable) {
+    buttonStable = raw;
+    if (buttonStable == LOW) {
+      buttonDownAt = now;
+      longPressHandled = false;
+    } else {
+      uint32_t held = now - buttonDownAt;
+      if (!longPressHandled && held < LONG_PRESS_MS) {
+        if (pendingTap && now - pendingTapAt <= DOUBLE_TAP_MS) {
+          pendingTap = false;
+          changeScene(-1);
+        } else {
+          pendingTap = true;
+          pendingTapAt = now;
+        }
+      }
+    }
+  }
+  if (buttonStable == LOW && !longPressHandled && now - buttonDownAt >= LONG_PRESS_MS) {
+    longPressHandled = true;
+    pendingTap = false;
+    cycleBrightness();
+  }
+  if (pendingTap && now - pendingTapAt > DOUBLE_TAP_MS) {
+    pendingTap = false;
+    changeScene(1);
+  }
+}
+
+void initializeGravityParticles() {
+  for (uint8_t i = 0; i < GRAVITY_PARTICLES; i++) {
+    particleX[i] = (i * 11 + 3) % VIEW_W;
+    particleY[i] = (i * 7 + 2) % VIEW_H;
+    particleVX[i] = particleVY[i] = 0;
+  }
 }
 
 uint16_t ledIndex(uint8_t x, uint8_t y) {
@@ -267,9 +382,18 @@ void readMpu() {
   if (Wire.requestFrom((uint8_t)MPU_ADDR, (size_t)6, true) != 6) return;
   int16_t ax = (Wire.read() << 8) | Wire.read();
   int16_t ay = (Wire.read() << 8) | Wire.read();
-  Wire.read(); Wire.read();
-  tiltX = tiltX * .86f + (ax / 16384.0f) * .14f;
-  tiltY = tiltY * .86f + (ay / 16384.0f) * .14f;
+  int16_t az = (Wire.read() << 8) | Wire.read();
+  float x = ax / 16384.0f, y = ay / 16384.0f, z = az / 16384.0f;
+  tiltX = tiltX * .86f + x * .14f;
+  tiltY = tiltY * .86f + y * .14f;
+  accelZ = accelZ * .86f + z * .14f;
+  float magnitude = sqrtf(x * x + y * y + z * z);
+  shakeEnergy = shakeEnergy * .82f + fabsf(magnitude - 1.0f) * .18f;
+  if (shakeEnergy > .32f && millis() - lastShakeAt > 650) {
+    lastShakeAt = millis();
+    motionPulse = 255;
+    Serial.println("[MOTION] Shake");
+  }
 }
 
 void renderAura(uint32_t now) {
@@ -406,6 +530,38 @@ void renderTilt(uint32_t now) {
   }
 }
 
+
+void renderMotionGradient(uint32_t now) {
+  float cx = (tiltX + 1.0f) * .5f * (VIEW_W - 1);
+  float cy = (tiltY + 1.0f) * .5f * (VIEW_H - 1);
+  for (uint8_t y = 0; y < VIEW_H; y++) for (uint8_t x = 0; x < VIEW_W; x++) {
+    float distance = sqrtf((x - cx) * (x - cx) + (y - cy) * (y - cy));
+    uint8_t value = qadd8(18, qsub8(210, min(210, (int)(distance * 18))));
+    value = qadd8(value, motionPulse / 3);
+    setPixel(x, y, CHSV(deviceState.hue + distance * 7 + now / 45, deviceState.saturation, value));
+  }
+  motionPulse = scale8(motionPulse, 225);
+}
+
+void renderGravity(uint32_t now) {
+  fill_solid(leds, NUM_LEDS, CRGB::Black);
+  float impulse = 0.025f + min(.18f, shakeEnergy * .3f);
+  for (uint8_t i = 0; i < GRAVITY_PARTICLES; i++) {
+    particleVX[i] += tiltX * impulse;
+    particleVY[i] += tiltY * impulse + .008f;
+    particleVX[i] *= .985f;
+    particleVY[i] *= .985f;
+    particleX[i] += particleVX[i];
+    particleY[i] += particleVY[i];
+    if (particleX[i] < 0) { particleX[i] = 0; particleVX[i] *= -.7f; }
+    if (particleX[i] > VIEW_W - 1) { particleX[i] = VIEW_W - 1; particleVX[i] *= -.7f; }
+    if (particleY[i] < 0) { particleY[i] = 0; particleVY[i] *= -.7f; }
+    if (particleY[i] > VIEW_H - 1) { particleY[i] = VIEW_H - 1; particleVY[i] *= -.72f; }
+    setPixel(roundf(particleX[i]), roundf(particleY[i]), CHSV(deviceState.hue + i * 9 + motionPulse / 4, deviceState.saturation, 180 + (i % 3) * 25));
+  }
+  motionPulse = scale8(motionPulse, 220);
+}
+
 String stateJson() {
   JsonDocument doc;
   doc["mode"] = deviceState.mode; doc["text"] = deviceState.text;
@@ -417,6 +573,7 @@ String stateJson() {
   doc["showCount"] = showCount; doc["frameMs"] = showFrameMs;
   doc["firmware"] = FIRMWARE_VERSION; doc["protocol"] = PROTOCOL_VERSION;
   doc["powerLimitMa"] = deviceState.powerLimitMa;
+  doc["sceneIndex"] = deviceState.sceneIndex; doc["setupMode"] = setupMode;
   String out; serializeJson(doc, out); return out;
 }
 
@@ -437,10 +594,13 @@ bool applyCommand(const String &json, String &reply) {
     status["firmware"] = FIRMWARE_VERSION; status["protocol"] = PROTOCOL_VERSION;
     status["width"] = VIEW_W; status["height"] = VIEW_H; status["maxFrames"] = MAX_SHOW_FRAMES;
     status["brightness"] = deviceState.brightness; status["powerLimitMa"] = deviceState.powerLimitMa;
+    status["sceneIndex"] = deviceState.sceneIndex; status["sceneCount"] = BUILT_IN_VIBE_COUNT + (showCount ? 1 : 0);
+    status["setupMode"] = setupMode; status["controlPin"] = CONTROL_PIN;
     status["freeHeap"] = ESP.getFreeHeap(); status["showCount"] = showCount; status["frameMs"] = showFrameMs;
     status["upload"]["active"] = uploadActive; status["upload"]["have"] = uploadReceived; status["upload"]["want"] = uploadExpected;
     status["caps"]["ble"] = true; status["caps"]["usb"] = true; status["caps"]["wifi"] = true;
-    status["caps"]["showUpload"] = true; status["caps"]["supportsOTA"] = false;
+    status["caps"]["showUpload"] = true; status["caps"]["physicalControl"] = true;
+    status["caps"]["motionEffects"] = true; status["caps"]["supportsOTA"] = false;
     serializeJson(status, reply);
     return true;
   }
@@ -710,6 +870,11 @@ void setupWeb() {
 }
 
 void setup() {
+  pinMode(CONTROL_PIN, INPUT_PULLUP);
+  delay(10);
+  uint32_t bootHoldStarted = millis();
+  while (digitalRead(CONTROL_PIN) == LOW && millis() - bootHoldStarted < FACTORY_HOLD_MS) delay(10);
+  setupMode = digitalRead(CONTROL_PIN) == LOW || millis() - bootHoldStarted >= 1200;
   pinMode(LED_PIN, OUTPUT);
   digitalWrite(LED_PIN, LOW);
   delay(25);
@@ -723,12 +888,27 @@ void setup() {
     Serial.printf("[FS] LittleFS mounted: %u/%u bytes used\n", LittleFS.usedBytes(), LittleFS.totalBytes());
   }
   loadState();
+  if (!preferences.getBool("initialized", false)) {
+    deviceState.sceneIndex = 0;
+    deviceState.mode = BUILT_IN_VIBES[0].mode;
+    deviceState.hue = BUILT_IN_VIBES[0].hue;
+    deviceState.saturation = BUILT_IN_VIBES[0].saturation;
+    deviceState.speed = BUILT_IN_VIBES[0].speed;
+    preferences.putBool("initialized", true);
+    saveState();
+  }
+  if (setupMode) {
+    deviceState.mode = "motion_gradient";
+    deviceState.brightness = 32;
+    Serial.println("[CONTROL] Boot hold entered setup mode");
+  }
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, NUM_LEDS);
   FastLED.setBrightness(deviceState.brightness);
   FastLED.setMaxPowerInVoltsAndMilliamps(5, deviceState.powerLimitMa);
   FastLED.clear(true);
   Wire.begin(SDA_PIN, SCL_PIN);
   mpuReady = startMpu();
+  initializeGravityParticles();
   setupBle();
   setupWeb();
   Serial.printf("[BOOT] LED Diffuser firmware %s, protocol %u, power cap %u mA, reset=%s\n", FIRMWARE_VERSION, PROTOCOL_VERSION, deviceState.powerLimitMa, esp_reset_reason() == ESP_RST_BROWNOUT ? "brownout" : "other");
@@ -740,6 +920,7 @@ void setup() {
 void loop() {
   server.handleClient();
   handleUsbSerial();
+  handleControlButton();
   readMpu();
   uint32_t now = millis();
   if (now - lastDataRxTime < 1500) {
@@ -751,6 +932,8 @@ void loop() {
   else if (deviceState.mode == "rain") renderRain(now);
   else if (deviceState.mode == "text") renderText(now);
   else if (deviceState.mode == "tilt") renderTilt(now);
+  else if (deviceState.mode == "gravity") renderGravity(now);
+  else if (deviceState.mode == "motion_gradient") renderMotionGradient(now);
   else renderAura(now);
   FastLED.show();
 }
