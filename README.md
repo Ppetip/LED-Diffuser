@@ -23,6 +23,20 @@ The editor/view is treated as 28 pixels wide x 10 pixels high. Change the pin co
 
 Use a separate 5 V LED supply with shared ground. Keep the initial brightness low.
 
+## Standalone controls
+
+The panel starts a built-in ambient scene immediately after first boot and remembers the selected scene.
+
+- Single tap: next vibe
+- Double tap: previous vibe
+- Long press: cycle safe brightness levels
+- Hold during boot for at least 1.2 seconds: enter setup mode
+- Hold during boot for 5 seconds: reserved factory-reset gesture
+
+GPIO 4 uses the ESP32-C3 internal pull-up. Wire a momentary button between GPIO 4 and ground. A capacitive touch board can be used if it provides an active-low digital output; do not connect a raw capacitive electrode directly because ESP32-C3 does not provide the touch peripheral used by older ESP32 boards.
+
+The MPU6050 adds tilt-driven gradients, shake pulses, and gravity particles. It is optional: the physical control input remains the primary no-phone control.
+
 ## Build
 
 Open `firmware/led_diffuser_hybrid/led_diffuser_hybrid.ino` and install:
