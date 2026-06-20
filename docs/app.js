@@ -157,7 +157,7 @@ async function transmit(payload,startPercent=0,endPercent=100){
     setUploadProgress(endPercent);
   }else if(activeTransport==="ble"){
     if(!rx)throw Error("Bluetooth connection is not open");
-    const chunkSize=160;
+    const chunkSize=20;
     for(let i=0;i<bytes.length;i+=chunkSize){
       await rx.writeValue(bytes.slice(i,i+chunkSize));
       const fraction=Math.min(bytes.length,i+chunkSize)/bytes.length;

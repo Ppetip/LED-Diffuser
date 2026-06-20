@@ -27,7 +27,7 @@
 #define DEFAULT_POWER_LIMIT_MA 750
 #define MIN_POWER_LIMIT_MA 250
 #define MAX_POWER_LIMIT_MA 10000
-#define BLE_NOTIFY_CHUNK_SIZE 160
+#define BLE_NOTIFY_CHUNK_SIZE 20
 
 const char *AP_SSID = "LED-Diffuser";
 const char *AP_PASS = "LEDLEDLED";
@@ -587,8 +587,11 @@ void notifyBleReply(const String &reply) {
   for (size_t offset = 0; offset < line.length(); offset += BLE_NOTIFY_CHUNK_SIZE) {
     String chunk = line.substring(offset, min(offset + BLE_NOTIFY_CHUNK_SIZE, line.length()));
     txCharacteristic->setValue(chunk.c_str());
-    txCharacteristic->notify();
-    delay(4);
+    if (!txCharacteristic->notify()) {
+      Serial.println("[BLE][ERROR] Notification delivery failed");
+      break;
+    }
+    delay(6);
   }
 }
 

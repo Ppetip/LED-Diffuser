@@ -25,6 +25,8 @@ assert(app.includes("async function uploadShow()"), "Streaming upload entry poin
 assert(app.includes('op:"show_begin"'), "Streaming begin command was removed");
 assert(app.includes('op:"show_frame"'), "Per-frame streaming command was removed");
 assert(app.includes('op:"show_commit"'), "Streaming commit command was removed");
+assert(app.includes("const chunkSize=20;"), "BLE writes must fit the default ATT payload");
+assert(!app.includes("const chunkSize=160;"), "Unsafe oversized BLE writes returned");
 assert(app.includes("LEDCompiler.importJson"), "Registry importer is not wired into the editor");
 assert(app.includes("LEDCompiler.buildAiPrompt"), "Registry-backed AI prompt is not wired into the editor");
 
