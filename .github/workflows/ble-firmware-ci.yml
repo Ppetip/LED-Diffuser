@@ -1,0 +1,30 @@
+name: BLE firmware hotfix CI
+
+on:
+  push:
+    branches:
+      - codex/ble-server-start-hotfix
+  pull_request:
+    paths:
+      - "firmware/**"
+      - "platformio.ini"
+      - "verify/test_ble_lifecycle.js"
+      - ".github/workflows/ble-firmware-ci.yml"
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Check BLE lifecycle
+        run: node verify/test_ble_lifecycle.js
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install PlatformIO
+        run: pip install platformio
+      - name: Compile ESP32-C3 firmware
+        run: platformio run
