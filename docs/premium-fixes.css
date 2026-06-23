@@ -1,0 +1,164 @@
+/* Final premium-page readability and phone layout fixes. Loaded after styles.css and premium-ui.css. */
+body.premium-ui,
+body.premium-ui main,
+body.premium-ui .card,
+body.premium-ui .section,
+body.premium-ui .premium-panel,
+body.premium-ui .validation-panel,
+body.premium-ui details {
+  color: #161616 !important;
+}
+
+body.premium-ui .card,
+body.premium-ui .section,
+body.premium-ui .premium-panel,
+body.premium-ui .validation-panel,
+body.premium-ui details,
+body.premium-ui aside,
+body.premium-ui section {
+  background: linear-gradient(145deg, #fbf9f3, #ece6da) !important;
+}
+
+body.premium-ui h1,
+body.premium-ui h2,
+body.premium-ui h3,
+body.premium-ui summary,
+body.premium-ui label,
+body.premium-ui strong,
+body.premium-ui p,
+body.premium-ui span,
+body.premium-ui small {
+  color: #161616 !important;
+  text-shadow: none !important;
+}
+
+body.premium-ui .sub,
+body.premium-ui .note,
+body.premium-ui .premium-note,
+body.premium-ui .premium-mode span {
+  color: #5f5a50 !important;
+}
+
+body.premium-ui input,
+body.premium-ui select,
+body.premium-ui textarea {
+  background: #fffdf8 !important;
+  color: #111827 !important;
+  border: 1px solid #d7d0c3 !important;
+  box-shadow: inset 3px 3px 8px rgba(85, 75, 55, .12), inset -3px -3px 8px rgba(255, 255, 255, .9) !important;
+}
+
+body.premium-ui textarea::placeholder,
+body.premium-ui input::placeholder {
+  color: #766f64 !important;
+}
+
+body.premium-ui button {
+  color: #161616 !important;
+  text-shadow: none !important;
+}
+
+body.premium-ui button.primary,
+body.premium-ui .premium-send,
+body.premium-ui .tab.active {
+  background: linear-gradient(145deg, #151515, #333333) !important;
+  color: #ffffff !important;
+}
+
+body.premium-ui .status {
+  background: #fffdf8 !important;
+  color: #3f3a33 !important;
+  border: 1px solid #d7d0c3 !important;
+}
+
+body.premium-ui .status.on {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+  border-color: #86efac !important;
+}
+
+body.premium-ui .error,
+body.premium-ui .validation-errors {
+  background: #ffedd5 !important;
+  color: #7c2d12 !important;
+  border-color: #fed7aa !important;
+}
+
+body.premium-ui .validation-ok {
+  background: #dcfce7 !important;
+  color: #166534 !important;
+}
+
+body.premium-ui .transport-log,
+body.premium-ui pre {
+  background: #171717 !important;
+  color: #e5e7eb !important;
+  border: 1px solid #2f2f2f !important;
+  text-shadow: none !important;
+}
+
+/* Make the 28x10 editor usable on phones instead of falling off the page. */
+body.premium-ui .stage,
+body.premium-ui #editor,
+body.premium-ui .pane {
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+body.premium-ui .matrix {
+  width: min(100%, calc(100vw - 42px)) !important;
+  max-width: 100% !important;
+  aspect-ratio: 28 / 10 !important;
+  display: grid !important;
+  grid-template-columns: repeat(28, minmax(0, 1fr)) !important;
+  grid-template-rows: repeat(10, minmax(0, 1fr)) !important;
+  gap: 3px !important;
+  padding: 10px !important;
+  overflow: hidden !important;
+  touch-action: none !important;
+}
+
+body.premium-ui .pixel {
+  width: auto !important;
+  height: auto !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  aspect-ratio: 1 / 1 !important;
+  border-radius: 20% !important;
+}
+
+body.premium-ui .frames {
+  max-width: 100% !important;
+  overflow-x: auto !important;
+  padding-bottom: 8px !important;
+}
+
+body.premium-ui .right,
+body.premium-ui .sidebar {
+  min-width: 0 !important;
+}
+
+@media (max-width: 980px) {
+  body.premium-ui main {
+    padding: 10px 10px 92px !important;
+    max-width: 100vw !important;
+    overflow-x: hidden !important;
+  }
+
+  body.premium-ui .layout {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) !important;
+    width: 100% !important;
+  }
+
+  body.premium-ui .card,
+  body.premium-ui .premium-panel {
+    width: 100% !important;
+    max-width: calc(100vw - 20px) !important;
+  }
+
+  body.premium-ui .matrix {
+    gap: 2px !important;
+    padding: 8px !important;
+  }
+}
