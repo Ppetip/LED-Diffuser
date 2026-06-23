@@ -65,6 +65,26 @@ Other examples:
 
 The firmware intentionally constrains output to low-resolution, abstract animation. AI-generated ideas should become parameters or 28x10 frames, not large images.
 
+## Phone BLE timeout recovery
+
+If the phone shows **Device acknowledgement timed out**, it usually means the browser connected but did not receive the ESP32 reply notification in time. The hosted controller now loads `docs/ble-transport-fix.js`, which makes BLE safer by:
+
+- resetting stale Bluetooth state before a new connection
+- letting the picker find the diffuser by advertised service or by the `LED-Diffuser` name
+- writing chunks more slowly so Android phones do not drop a long frame upload
+- keeping the connection usable even if the first status probe would have timed out
+- using longer timeouts for big 280-pixel frame uploads
+
+Try this order when BLE acts cursed:
+
+1. Power-cycle the ESP32 and wait 5 seconds.
+2. Reload the GitHub Pages controller.
+3. Press **Connect Bluetooth** and choose `LED-Diffuser`.
+4. Send a tiny **Live vibe** first.
+5. Then try **Show this frame**.
+6. Use **Upload show** last, after one-frame control is working.
+
+If the device pairs but commands do nothing, connect USB Serial Monitor at `115200` and look for `[BLE]`, `[CMD]`, or `[SHOW][ERROR]` lines.
 
 ## Use it as a wall display
 
@@ -100,7 +120,6 @@ GitHub Pages hosts only the controller. It does not relay commands through the i
 Web Bluetooth requires a compatible browser and a secure HTTPS page. Chrome or Edge on a computer, and compatible Chromium browsers on Android, are the intended targets. The user must press the connection button and choose the device; websites cannot silently pair with Bluetooth devices.
 
 iPhone and iPad Safari do not currently provide the Web Bluetooth API used by this controller. Supporting iOS will require either the ESP32's Wi-Fi interface, an installed BLE app, or a different wrapper application.
-
 
 ## Wired USB control
 
