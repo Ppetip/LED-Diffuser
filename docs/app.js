@@ -20,45 +20,22 @@ function setConnected(value,label=""){
   ["sendFrame","uploadShow","sendVibe"].forEach(id=>$(id).disabled=!value);
   setStatus(value?"Connected via "+label:"Not connected",value);
 }
-async function probeDeviceStatus(){
-  let statusReply;
-  for(let attempt=0;attempt<2&&!statusReply;attempt++){
-    try{statusReply=await sendCommand({op:"get_status"},0,0,5000)}
-    catch(error){if(!attempt)await new Promise(resolve=>setTimeout(resolve,500));else throw error}
-  }
-  if(statusReply?.firmware)appendTransportLog(`Firmware ${statusReply.firmware}, power cap ${statusReply.powerLimitMa||"?"} mA`);
-  if($("powerProfile")?.value==="safe")await sendCommand({powerLimitMa:750},0,0,5000);
-  return statusReply;
-}
-
 async function connect(){
   if(!navigator.bluetooth){setStatus("Web Bluetooth is unavailable here.",false,true);return}
   try{
     setStatus("Choose LED-Diffuser in the pairing window...");
     device=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE]}],optionalServices:[SERVICE]});
     device.addEventListener("gattserverdisconnected",()=>{activeTransport=null;rejectPendingReplies("Bluetooth disconnected");appendTransportLog("Bluetooth disconnected","error");setConnected(false)});
-    
-    setStatus("Connecting to GATT server on LED-Diffuser...");
     const server=await device.gatt.connect();
-    
-    setStatus("Discovering Nordic UART Service...");
     const service=await server.getPrimaryService(SERVICE);
-    
-    setStatus("Locating RX and TX characteristics...");
     rx=await service.getCharacteristic(RX);
     tx=await service.getCharacteristic(TX);
-    
-    setStatus("Enabling status notifications...");
     await tx.startNotifications();
     tx.addEventListener("characteristicvaluechanged",event=>{
       handleDeviceChunk(new TextDecoder().decode(event.target.value));
     });
-    
     activeTransport="ble";
     setConnected(true,device?.name||"Bluetooth");
-    
-    setStatus("Probing device configurations...");
-    await probeDeviceStatus();
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
 async function connectUsb(){
@@ -66,12 +43,12 @@ async function connectUsb(){
   try{
     serialPort=await navigator.serial.requestPort();
     await serialPort.open({baudRate:115200});
-    await new Promise(resolve=>setTimeout(resolve,1800));
+    await serialPort.setSignals({dataTerminalReady:true,requestToSend:false});
     serialWriter=serialPort.writable.getWriter();
     serialReadTask=readUsbLoop(serialPort);
     activeTransport="usb";
     setConnected(true,"USB");
-    await probeDeviceStatus();
+    await new Promise(resolve=>setTimeout(resolve,2000));
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
 async function disconnectTransport(){
@@ -168,10 +145,9 @@ async function transmit(payload,startPercent=0,endPercent=100){
     setUploadProgress(endPercent);
   }else if(activeTransport==="ble"){
     if(!rx)throw Error("Bluetooth connection is not open");
-    const chunkSize=20;
+    const chunkSize=160;
     for(let i=0;i<bytes.length;i+=chunkSize){
-      const part=bytes.slice(i,i+chunkSize);
-      await rx.writeValue(part);
+      await rx.writeValue(bytes.slice(i,i+chunkSize));
       const fraction=Math.min(bytes.length,i+chunkSize)/bytes.length;
       setUploadProgress(startPercent+(endPercent-startPercent)*fraction);
     }
@@ -554,23 +530,8 @@ $("importProject").onclick=()=>{
       throw Error(result.errors.map(item=>`${item.path}: ${item.message}`).join("; ")||"Nothing importable found");
     }
   }catch(error){
-    let msg = error.message;
-    if (msg.includes("JSON.parse") || msg.includes("Unexpected token") || msg.includes("is not valid JSON")) {
-      const inputVal = $("projectJson").value || "";
-      if (inputVal.includes("#include") || inputVal.includes("void setup") || inputVal.includes("void loop")) {
-        msg = "C++ Firmware Detected: You pasted Arduino/C++ firmware code instead of animation JSON! Firmware must be flashed using VS Code or Arduino IDE.";
-      } else {
-        try {
-          const repaired = LEDCompiler.sanitizeJsonText(inputVal);
-          const snippet = repaired ? (repaired.substring(0, 180) + (repaired.length > 180 ? "..." : "")) : "(empty)";
-          msg = `JSON parse failed: ${error.message}. Repaired preview: ${snippet}`;
-        } catch (repairError) {
-          msg = `JSON parse failed: ${error.message}. Repair failed: ${repairError.message}`;
-        }
-      }
-    }
-    setStatus(msg,false,true);
-    renderValidation({errors:[{path:"$",message:msg}],warnings:[]});
+    setStatus(error.message,false,true);
+    if(!lastImportResult)renderValidation({errors:[{path:"$",message:error.message}],warnings:[]});
   }
 };
 $("copyRepairedJson").onclick=async()=>{
@@ -1714,17 +1675,6 @@ const JSON_TEMPLATES = {
     ]
   }
 };
-
-if(Array.isArray(window.LED_TEMPLATE_CATALOG)){
-  for(const item of window.LED_TEMPLATE_CATALOG){
-    JSON_TEMPLATES[item.id]=item.program;
-    if(!$("jsonTemplate").querySelector(`option[value="${item.id}"]`)){
-      const option=document.createElement("option");
-      option.value=item.id;option.textContent=`${item.category}: ${item.name}`;
-      $("jsonTemplate").append(option);
-    }
-  }
-}
 
 $("jsonTemplate").onchange = (e) => {
   const key = e.target.value;

@@ -1,9 +1,8 @@
 const assert = require("assert");
 const fs = require("fs");
 const vm = require("vm");
-const path = require("path");
 
-const source = fs.readFileSync(path.join(__dirname, "..", "docs", "program-compiler.js"), "utf8");
+const source = fs.readFileSync("docs/program-compiler.js", "utf8");
 const context = {
   console,
   structuredClone,
@@ -82,53 +81,6 @@ assert.strictEqual(imported.kind, "program");
 assert.strictEqual(imported.frames.length, 12, JSON.stringify(imported.errors));
 assert(imported.warnings.some(warning => warning.path === "layers[3].params.nestedPulse"), "unsupported skyline parameter was not reported");
 assert(!imported.program.layers[3].params.nestedPulse, "unsupported parameter survived repair");
-
-const withComments = `
-// This is a test program with comments
-{
-  /* Multi-line comment here */
-  "schemaVersion": 2,
-  "name": "Comments Test",
-  "frameCount": 1,
-  "layers": [
-    // Layer comment
-    {
-      "id": "solid-1",
-      "type": "solid",
-      "params": {
-        "color": "#123456"
-      }
-    }
-  ]
-}
-`;
-const importedComments = compiler.importJson(withComments);
-assert.strictEqual(importedComments.kind, "program", JSON.stringify(importedComments.errors));
-assert.strictEqual(importedComments.program.name, "Comments Test");
-
-const withBareKeys = `
-{
-  schemaVersion: 2,
-  name: "Bare Keys Test",
-  frameCount: 1,
-  layers: [
-    {
-      id: "solid-2",
-      type: "solid",
-      params: {
-        color: "#ffffff"
-      }
-    }
-  ]
-}
-`;
-const importedBareKeys = compiler.importJson(withBareKeys);
-assert.strictEqual(importedBareKeys.kind, "program", JSON.stringify(importedBareKeys.errors));
-assert.strictEqual(importedBareKeys.program.name, "Bare Keys Test");
-
-assert.throws(() => {
-  compiler.importJson("#include <FastLED.h>\nvoid setup() {}");
-}, /C\+\+ Firmware Detected/);
 
 const typo = compiler.importJson(JSON.stringify({
   schemaVersion: 2,

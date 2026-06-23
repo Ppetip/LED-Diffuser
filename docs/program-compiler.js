@@ -97,10 +97,6 @@
     if (motion === "scroll_right") x += context.progress * WIDTH * speed;
     if (motion === "scroll_up") y -= context.progress * HEIGHT * speed;
     if (motion === "scroll_down") y += context.progress * HEIGHT * speed;
-    if (motion === "wrap_left") x = ((x - context.progress * WIDTH * speed) % WIDTH + WIDTH) % WIDTH;
-    if (motion === "wrap_right") x = ((x + context.progress * WIDTH * speed) % WIDTH + WIDTH) % WIDTH;
-    if (motion === "wrap_up") y = ((y - context.progress * HEIGHT * speed) % HEIGHT + HEIGHT) % HEIGHT;
-    if (motion === "wrap_down") y = ((y + context.progress * HEIGHT * speed) % HEIGHT + HEIGHT) % HEIGHT;
     if (motion === "bounce_x") x += Math.sin(wave) * amplitude;
     if (motion === "bounce_y") y += Math.sin(wave) * amplitude;
     if (motion === "orbit") { x += Math.cos(wave) * amplitude; y += Math.sin(wave) * amplitude; }
@@ -118,7 +114,7 @@
   }
 
   const MOTION_PARAMS = {
-    motion: enumParam("none", ["none", "scroll_left", "scroll_right", "scroll_up", "scroll_down", "wrap_left", "wrap_right", "wrap_up", "wrap_down", "bounce_x", "bounce_y", "orbit", "pulse", "flicker"]),
+    motion: enumParam("none", ["none", "scroll_left", "scroll_right", "scroll_up", "scroll_down", "bounce_x", "bounce_y", "orbit", "pulse", "flicker"]),
     motionSpeed: numberParam(1, 0, 8),
     amplitude: numberParam(2, 0, 28, "pixels"),
     phase: numberParam(0, 0, 1, "normalized")
@@ -192,22 +188,9 @@
     return grid;
   }
 
-  function fillPolygon(grid, points, color) {
-    for (let y = 0; y < HEIGHT; y++) for (let x = 0; x < WIDTH; x++) {
-      let inside = false;
-      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
-        const a = points[i], b = points[j];
-        const crosses = (a.y > y + 0.5) !== (b.y > y + 0.5);
-        if (crosses && x + 0.5 < (b.x - a.x) * (y + 0.5 - a.y) / (b.y - a.y) + a.x) inside = !inside;
-      }
-      if (inside) setPixel(grid, x, y, color);
-    }
-  }
-
   function renderTriangle(context, params) {
     const grid = makeLayer();
     const points = [[params.x1, params.y1], [params.x2, params.y2], [params.x3, params.y3]].map(point => animatedPoint(params, context, point[0], point[1]));
-    if (params.filled) fillPolygon(grid, points, params.color);
     drawLine(grid, points[0].x, points[0].y, points[1].x, points[1].y, params.color);
     drawLine(grid, points[1].x, points[1].y, points[2].x, points[2].y, params.color);
     drawLine(grid, points[2].x, points[2].y, points[0].x, points[0].y, params.color);
@@ -217,7 +200,6 @@
   function renderPolygon(context, params) {
     const grid = makeLayer();
     const points = params.points.map(point => animatedPoint(params, context, point[0], point[1]));
-    if (params.filled) fillPolygon(grid, points, params.color);
     for (let i = 0; i < points.length; i++) {
       const next = points[(i + 1) % points.length];
       drawLine(grid, points[i].x, points[i].y, next.x, next.y, params.color);
@@ -227,11 +209,10 @@
 
   function renderStars(context, params) {
     const grid = makeLayer();
-    const positions = seededRandom(hashText(params.seed));
-    const twinkle = seededRandom(hashText(params.seed) + context.frame * 101);
+    const random = seededRandom(hashText(params.seed) + context.frame * 101);
     for (let i = 0; i < params.count; i++) {
-      const x = Math.floor(positions() * WIDTH), y = Math.floor(positions() * HEIGHT);
-      if (!params.twinkle || twinkle() > 0.35) setPixel(grid, x, y, params.color);
+      const x = Math.floor(random() * WIDTH), y = Math.floor(random() * HEIGHT);
+      if (!params.twinkle || random() > 0.35) setPixel(grid, x, y, params.color);
     }
     return grid;
   }
@@ -377,8 +358,8 @@
     line: definition("Drawing", "Bresenham line between two pixel coordinates.", withMotion({ x1: numberParam(0, -28, 56, "pixels"), y1: numberParam(0, -10, 20, "pixels"), x2: numberParam(27, -28, 56, "pixels"), y2: numberParam(9, -10, 20, "pixels"), color: colorParam() }), { x1: 0, y1: 9, x2: 27, y2: 2, color: "#38d9d6" }, renderLine),
     rectangle: definition("Drawing", "Filled or outlined rectangle primitive.", withMotion({ x: numberParam(0, -28, 56, "pixels"), y: numberParam(0, -10, 20, "pixels"), width: integerParam(6, 1, 56, "pixels"), height: integerParam(4, 1, 20, "pixels"), color: colorParam(), filled: booleanParam(true) }), { x: 4, y: 3, width: 8, height: 5, color: "#4d96ff", filled: true }, renderRectangle),
     circle: definition("Drawing", "Filled or outlined circle primitive.", withMotion({ cx: numberParam(14, -28, 56, "pixels"), cy: numberParam(5, -10, 20, "pixels"), radius: numberParam(3, 0.5, 30, "pixels"), color: colorParam(), filled: booleanParam(true) }), { cx: 14, cy: 5, radius: 3, color: "#ffe66d", filled: true }, renderCircle),
-    triangle: definition("Drawing", "Triangle outline built from three points.", withMotion({ x1: numberParam(14, -28, 56, "pixels"), y1: numberParam(1, -10, 20, "pixels"), x2: numberParam(8, -28, 56, "pixels"), y2: numberParam(8, -10, 20, "pixels"), x3: numberParam(20, -28, 56, "pixels"), y3: numberParam(8, -10, 20, "pixels"), color: colorParam(), filled: booleanParam(false) }), { x1: 14, y1: 1, x2: 8, y2: 8, x3: 20, y3: 8, color: "#ff477e", filled: true }, renderTriangle),
-    polygon: definition("Drawing", "Closed polygon outline from an array of [x,y] points.", withMotion({ points: { type: "points", required: true, minItems: 3, maxItems: 16 }, color: colorParam(), filled: booleanParam(false) }), { points: [[3, 8], [8, 2], [14, 8]], color: "#8cff98", filled: true }, renderPolygon),
+    triangle: definition("Drawing", "Triangle outline built from three points.", withMotion({ x1: numberParam(14, -28, 56, "pixels"), y1: numberParam(1, -10, 20, "pixels"), x2: numberParam(8, -28, 56, "pixels"), y2: numberParam(8, -10, 20, "pixels"), x3: numberParam(20, -28, 56, "pixels"), y3: numberParam(8, -10, 20, "pixels"), color: colorParam() }), { x1: 14, y1: 1, x2: 8, y2: 8, x3: 20, y3: 8, color: "#ff477e" }, renderTriangle),
+    polygon: definition("Drawing", "Closed polygon outline from an array of [x,y] points.", withMotion({ points: { type: "points", required: true, minItems: 3, maxItems: 16 }, color: colorParam() }), { points: [[3, 8], [8, 2], [14, 8]], color: "#8cff98" }, renderPolygon),
     stars: definition("Objects", "Deterministic star field with optional twinkle.", { count: integerParam(18, 1, 100), color: colorParam("#ffffff"), seed: stringParam("stars"), twinkle: booleanParam(true) }, { count: 18, color: "#ffffff", seed: "sky-1", twinkle: true }, renderStars),
     building: definition("Objects", "Filled building block; combine with windows.", withMotion({ x: numberParam(2, -28, 56, "pixels"), y: numberParam(4, -10, 20, "pixels"), width: integerParam(6, 1, 56), height: integerParam(6, 1, 20), color: colorParam("#111827") }), { x: 2, y: 4, width: 7, height: 6, color: "#111827" }, renderBuilding),
     windows: definition("Objects", "Deterministic grid of lit window pixels.", withMotion({ x: numberParam(3, -28, 56, "pixels"), y: numberParam(5, -10, 20, "pixels"), columns: integerParam(3, 1, 20), rows: integerParam(2, 1, 10), spacingX: integerParam(2, 1, 8), spacingY: integerParam(2, 1, 8), color: colorParam("#ffe66d"), litChance: numberParam(0.7, 0, 1), seed: stringParam("windows") }), { x: 3, y: 5, columns: 3, rows: 2, spacingX: 2, spacingY: 2, color: "#ffe66d", litChance: 0.7 }, renderWindows),
@@ -414,37 +395,18 @@
   }
 
   function sanitizeJsonText(text) {
-    let raw = String(text || "");
-    
-    // 1. Detect if it is actual Arduino C++ code
-    if (raw.includes("#include") || raw.includes("void setup") || raw.includes("void loop") || raw.includes("CRGB leds") || raw.includes("FastLED")) {
-      throw new Error("C++ Firmware Detected: You pasted Arduino/C++ firmware code! The animation studio JSON box only accepts animation JSON configurations. Firmware must be compiled and flashed to the ESP32 using VS Code/PlatformIO or the Arduino IDE.");
-    }
-
-    let repaired = raw
-      // 2. Normalize smart quotes and strip comments
+    let repaired = String(text || "")
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, "'")
-      .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1')
       .replace(/^\s*```(?:json)?/i, "")
       .replace(/```\s*$/i, "")
       .trim();
-
-    // 3. Handle variable wrappers like const program = { ... }; or let show = ...;
     const objectStart = repaired.indexOf("{");
     const arrayStart = repaired.indexOf("[");
     const start = objectStart < 0 ? arrayStart : arrayStart < 0 ? objectStart : Math.min(objectStart, arrayStart);
     const end = Math.max(repaired.lastIndexOf("}"), repaired.lastIndexOf("]"));
-    if (start >= 0 && end >= start) {
-      repaired = repaired.slice(start, end + 1);
-    }
-
-    // 4. Fix bare keys (unquoted keys in JS objects, e.g. schemaVersion: 2)
-    repaired = repaired.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
-
-    // 5. Fix trailing commas
+    if (start >= 0 && end >= start) repaired = repaired.slice(start, end + 1);
     repaired = repaired.replace(/,\s*([}\]])/g, "$1");
-
     return repaired;
   }
 
