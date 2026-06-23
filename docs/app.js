@@ -171,11 +171,7 @@ async function transmit(payload,startPercent=0,endPercent=100){
     const chunkSize=20;
     for(let i=0;i<bytes.length;i+=chunkSize){
       const part=bytes.slice(i,i+chunkSize);
-      if (typeof rx.writeValueWithoutResponse === "function") {
-        await rx.writeValueWithoutResponse(part);
-      } else {
-        await rx.writeValue(part);
-      }
+      await rx.writeValue(part);
       const fraction=Math.min(bytes.length,i+chunkSize)/bytes.length;
       setUploadProgress(startPercent+(endPercent-startPercent)*fraction);
     }

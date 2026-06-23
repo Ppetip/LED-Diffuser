@@ -474,6 +474,11 @@ bool applyCommand(const String &json, String &reply) {
       reply = "{\"ok\":0,\"error\":\"no active upload\"}";
       return false;
     }
+    if (index == uploadReceived - 1) {
+      reply = "{\"ok\":1,\"i\":" + String(index) + "}";
+      Serial.printf("[SHOW] Frame %d already saved, acknowledging retry\n", index);
+      return true;
+    }
     if (index != uploadReceived || index >= uploadExpected) {
       reply = "{\"ok\":0,\"error\":\"frame out of order\",\"want\":" + String(uploadReceived) + "}";
       Serial.printf("[SHOW][ERROR] Out-of-order frame %d, expected %u\n", index, uploadReceived);
