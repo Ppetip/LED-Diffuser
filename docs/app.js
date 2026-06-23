@@ -554,8 +554,23 @@ $("importProject").onclick=()=>{
       throw Error(result.errors.map(item=>`${item.path}: ${item.message}`).join("; ")||"Nothing importable found");
     }
   }catch(error){
-    setStatus(error.message,false,true);
-    if(!lastImportResult)renderValidation({errors:[{path:"$",message:error.message}],warnings:[]});
+    let msg = error.message;
+    if (msg.includes("JSON.parse") || msg.includes("Unexpected token") || msg.includes("is not valid JSON")) {
+      const inputVal = $("projectJson").value || "";
+      if (inputVal.includes("#include") || inputVal.includes("void setup") || inputVal.includes("void loop")) {
+        msg = "C++ Firmware Detected: You pasted Arduino/C++ firmware code instead of animation JSON! Firmware must be flashed using VS Code or Arduino IDE.";
+      } else {
+        try {
+          const repaired = LEDCompiler.sanitizeJsonText(inputVal);
+          const snippet = repaired ? (repaired.substring(0, 180) + (repaired.length > 180 ? "..." : "")) : "(empty)";
+          msg = `JSON parse failed: ${error.message}. Repaired preview: ${snippet}`;
+        } catch (repairError) {
+          msg = `JSON parse failed: ${error.message}. Repair failed: ${repairError.message}`;
+        }
+      }
+    }
+    setStatus(msg,false,true);
+    renderValidation({errors:[{path:"$",message:msg}],warnings:[]});
   }
 };
 $("copyRepairedJson").onclick=async()=>{

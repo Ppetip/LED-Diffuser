@@ -414,18 +414,37 @@
   }
 
   function sanitizeJsonText(text) {
-    let repaired = String(text || "")
+    let raw = String(text || "");
+    
+    // 1. Detect if it is actual Arduino C++ code
+    if (raw.includes("#include") || raw.includes("void setup") || raw.includes("void loop") || raw.includes("CRGB leds") || raw.includes("FastLED")) {
+      throw new Error("C++ Firmware Detected: You pasted Arduino/C++ firmware code! The animation studio JSON box only accepts animation JSON configurations. Firmware must be compiled and flashed to the ESP32 using VS Code/PlatformIO or the Arduino IDE.");
+    }
+
+    let repaired = raw
+      // 2. Normalize smart quotes and strip comments
       .replace(/[“”]/g, '"')
       .replace(/[‘’]/g, "'")
+      .replace(/\/\*[\s\S]*?\*\/|([^\\:]|^)\/\/.*$/gm, '$1')
       .replace(/^\s*```(?:json)?/i, "")
       .replace(/```\s*$/i, "")
       .trim();
+
+    // 3. Handle variable wrappers like const program = { ... }; or let show = ...;
     const objectStart = repaired.indexOf("{");
     const arrayStart = repaired.indexOf("[");
     const start = objectStart < 0 ? arrayStart : arrayStart < 0 ? objectStart : Math.min(objectStart, arrayStart);
     const end = Math.max(repaired.lastIndexOf("}"), repaired.lastIndexOf("]"));
-    if (start >= 0 && end >= start) repaired = repaired.slice(start, end + 1);
+    if (start >= 0 && end >= start) {
+      repaired = repaired.slice(start, end + 1);
+    }
+
+    // 4. Fix bare keys (unquoted keys in JS objects, e.g. schemaVersion: 2)
+    repaired = repaired.replace(/([{,]\s*)([a-zA-Z_][a-zA-Z0-9_]*)\s*:/g, '$1"$2":');
+
+    // 5. Fix trailing commas
     repaired = repaired.replace(/,\s*([}\]])/g, "$1");
+
     return repaired;
   }
 
