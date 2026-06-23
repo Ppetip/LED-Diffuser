@@ -1,0 +1,1 @@
+Backup point before rollback: main had later JSON repair and BLE shim commits. The intended rollback target is cd8d783f7feee6b729f7638029774c88f49eda7e.
