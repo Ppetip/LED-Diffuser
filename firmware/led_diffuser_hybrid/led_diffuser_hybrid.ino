@@ -661,9 +661,11 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
     bleBuffer += part;
     if (bleBuffer.endsWith("\n") || (bleBuffer.startsWith("{") && bleBuffer.endsWith("}"))) {
       bleBuffer.trim();
-      String reply;
-      applyCommand(bleBuffer, reply);
-      notifyBleReply(reply);
+      if (bleBuffer.length() > 0) {
+        String reply;
+        applyCommand(bleBuffer, reply);
+        notifyBleReply(reply);
+      }
       bleBuffer = "";
     }
     if (bleBuffer.length() > 4096) {
