@@ -778,7 +778,7 @@ void loop() {
   handleUsbSerial();
   readMpu();
   uint32_t now = millis();
-  if (now - lastDataRxTime < 1500) {
+  if (now - lastDataRxTime < 5000) {
     return; // Pause LED renders during active transfers so interrupts stay enabled
   }
   if (now - lastFrame < 33) return;
