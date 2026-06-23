@@ -37,16 +37,27 @@ async function connect(){
     setStatus("Choose LED-Diffuser in the pairing window...");
     device=await navigator.bluetooth.requestDevice({filters:[{services:[SERVICE]}],optionalServices:[SERVICE]});
     device.addEventListener("gattserverdisconnected",()=>{activeTransport=null;rejectPendingReplies("Bluetooth disconnected");appendTransportLog("Bluetooth disconnected","error");setConnected(false)});
+    
+    setStatus("Connecting to GATT server on LED-Diffuser...");
     const server=await device.gatt.connect();
+    
+    setStatus("Discovering Nordic UART Service...");
     const service=await server.getPrimaryService(SERVICE);
+    
+    setStatus("Locating RX and TX characteristics...");
     rx=await service.getCharacteristic(RX);
     tx=await service.getCharacteristic(TX);
+    
+    setStatus("Enabling status notifications...");
     await tx.startNotifications();
     tx.addEventListener("characteristicvaluechanged",event=>{
       handleDeviceChunk(new TextDecoder().decode(event.target.value));
     });
+    
     activeTransport="ble";
     setConnected(true,device?.name||"Bluetooth");
+    
+    setStatus("Probing device configurations...");
     await probeDeviceStatus();
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
@@ -159,7 +170,12 @@ async function transmit(payload,startPercent=0,endPercent=100){
     if(!rx)throw Error("Bluetooth connection is not open");
     const chunkSize=20;
     for(let i=0;i<bytes.length;i+=chunkSize){
-      await rx.writeValue(bytes.slice(i,i+chunkSize));
+      const part=bytes.slice(i,i+chunkSize);
+      if (typeof rx.writeValueWithoutResponse === "function") {
+        await rx.writeValueWithoutResponse(part);
+      } else {
+        await rx.writeValue(part);
+      }
       const fraction=Math.min(bytes.length,i+chunkSize)/bytes.length;
       setUploadProgress(startPercent+(endPercent-startPercent)*fraction);
     }

@@ -63,6 +63,7 @@ String showFrames[MAX_SHOW_FRAMES];
 uint8_t showCount = 0;
 uint16_t showFrameMs = 250;
 uint32_t lastDataRxTime = 0;
+volatile uint16_t negotiatedMtu = 23;
 File showUploadFile;
 uint8_t uploadExpected = 0;
 uint8_t uploadReceived = 0;
@@ -582,16 +583,18 @@ bool applyCommand(const String &json, String &reply) {
 }
 
 void notifyBleReply(const String &reply) {
-  if (!txCharacteristic) return;
   String line = reply + "\n";
-  for (size_t offset = 0; offset < line.length(); offset += BLE_NOTIFY_CHUNK_SIZE) {
-    String chunk = line.substring(offset, min(offset + BLE_NOTIFY_CHUNK_SIZE, line.length()));
+  uint16_t chunkSize = negotiatedMtu - 3;
+  if (chunkSize < 20) chunkSize = 20; // Safety guard
+  Serial.printf("[BLE] Sending reply of length %d in chunks of %d...\n", line.length(), chunkSize);
+  for (size_t offset = 0; offset < line.length(); offset += chunkSize) {
+    String chunk = line.substring(offset, min(offset + chunkSize, line.length()));
     txCharacteristic->setValue(chunk.c_str());
     if (!txCharacteristic->notify()) {
       Serial.println("[BLE][ERROR] Notification delivery failed");
       break;
     }
-    delay(6);
+    delay(15); // Safe delay for client to process notification
   }
 }
 
@@ -624,6 +627,23 @@ void handleUsbSerial() {
     }
   }
 }
+
+class MyServerCallbacks : public NimBLEServerCallbacks {
+  void onConnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo) override {
+    Serial.printf("[BLE] Client connected. Handle: %d, Address: %s\n", 
+                  connInfo.getConnHandle(), connInfo.getAddress().toString().c_str());
+    lastDataRxTime = millis(); // Pause FastLED updates during initial connection
+  }
+  void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
+    Serial.printf("[BLE] Client disconnected. Handle: %d, Reason: 0x%02X\n", 
+                  connInfo.getConnHandle(), reason);
+    negotiatedMtu = 23; // Reset to default MTU on disconnect
+  }
+  void onMTUChange(uint16_t MTU, NimBLEConnInfo& connInfo) override {
+    Serial.printf("[BLE] MTU updated to %d for connection %d\n", MTU, connInfo.getConnHandle());
+    negotiatedMtu = MTU;
+  }
+};
 
 class RxCallbacks : public NimBLECharacteristicCallbacks {
   void onWrite(NimBLECharacteristic *characteristic, NimBLEConnInfo &connInfo) override {
@@ -684,6 +704,7 @@ void setupBle() {
   NimBLEDevice::init("LED-Diffuser");
   NimBLEDevice::setMTU(185);
   NimBLEServer *bleServer = NimBLEDevice::createServer();
+  bleServer->setCallbacks(new MyServerCallbacks());
   bleServer->advertiseOnDisconnect(true);
   NimBLEService *service = bleServer->createService(BLE_SERVICE);
   txCharacteristic = service->createCharacteristic(BLE_TX, NIMBLE_PROPERTY::NOTIFY);
