@@ -530,3 +530,59 @@ textarea {
 .adjustment-previews{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:14px 0}
 .adjustment-previews figure{margin:0}.adjustment-previews canvas{width:100%;aspect-ratio:28/10;image-rendering:pixelated;background:#000;border:1px solid var(--line);border-radius:8px}.adjustment-previews figcaption{text-align:center;color:var(--muted)}
 @media(max-width:720px){.adjustment-dialog{width:calc(100vw - 12px);max-height:96vh;padding:10px}.adjustment-previews{grid-template-columns:1fr}.validation-panel{max-height:220px}.block-browser{max-height:360px}}
+
+/* Physical wall simulator */
+.button-link {
+  width: 100%;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 8px 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,.08);
+  border-radius: 10px;
+  background: rgba(255,255,255,.05);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.button-link:hover { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.15); }
+.simulator-shell { margin: -4px -4px 22px; padding: 4px 4px 22px; border-bottom: 1px solid var(--line); }
+.simulator-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; margin-bottom: 16px; }
+.simulator-head h2 { margin: 3px 0 5px; padding: 0; border: 0; font-size: 22px; letter-spacing: -.025em; }
+.simulator-head p { margin: 0; color: var(--muted); font-size: 13px; }
+.eyebrow, .field-title { color: var(--a); font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; }
+.geometry-badge { flex: none; padding: 7px 10px; border: 1px solid rgba(124,231,221,.25); border-radius: 999px; background: rgba(124,231,221,.07); color: #b8fff8; font: 700 10px/1 'Space Grotesk',sans-serif; letter-spacing: .06em; text-transform: uppercase; }
+.simulator-layout { display: grid; grid-template-columns: minmax(245px, 320px) minmax(190px, 1fr); gap: 22px; align-items: start; }
+.wall-preview { margin: 0; }
+.wall-frame { position: relative; width: 100%; aspect-ratio: 19/30; overflow: hidden; padding: 8px; border: 1px solid rgba(255,255,255,.14); border-radius: 11px; background: linear-gradient(145deg,#34383d,#101215 38%,#25292d); box-shadow: 0 28px 55px rgba(0,0,0,.42), inset 0 1px 1px rgba(255,255,255,.2); }
+.wall-frame::after { content: ""; position: absolute; inset: 8px; pointer-events: none; border: 1px solid rgba(255,255,255,.035); box-shadow: inset 0 0 50px rgba(255,255,255,.035); }
+.wall-frame canvas { display: block; width: 100%; height: 100%; border-radius: 4px; }
+.wall-preview figcaption { margin-top: 8px; color: var(--muted); font-size: 11px; text-align: center; letter-spacing: .06em; text-transform: uppercase; }
+.playground-controls { display: grid; gap: 12px; }
+.effect-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 7px; margin-top: 7px; }
+.effect-grid button { min-height: 40px; padding: 8px; font-size: 12px; }
+.effect-grid button.active { color: #071211; background: var(--a); border-color: var(--a); box-shadow: 0 0 18px var(--glow); }
+.effect-description { min-height: 48px; margin: 0; padding: 10px 11px; border-left: 2px solid rgba(124,231,221,.42); background: rgba(255,255,255,.025); color: var(--muted); font-size: 12px; line-height: 1.45; }
+.transport-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.inline-check { display: flex; align-items: center; gap: 8px; text-transform: none; letter-spacing: 0; }
+.inline-check input { width: auto; min-height: 0; }
+.preview-readout { padding: 9px 10px; border: 1px solid var(--line); border-radius: 9px; background: rgba(0,0,0,.24); color: #b9c4d2; font: 11px/1.35 ui-monospace,SFMono-Regular,Consolas,monospace; }
+
+@media (min-width:1021px) {
+  main { max-width: 1500px; }
+  .layout { grid-template-columns: 230px minmax(590px,1fr) 310px; }
+}
+@media (max-width:1180px) and (min-width:721px) {
+  .layout { grid-template-columns: 220px minmax(560px,1fr); }
+  .right { grid-column: 1 / -1; }
+}
+@media (max-width:720px) {
+  .simulator-head { flex-direction: column; gap: 9px; }
+  .simulator-layout { grid-template-columns: 1fr; }
+  .wall-preview { width: min(78vw,290px); margin: 0 auto; }
+  .effect-grid { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .simulator-head h2 { font-size: 20px; }
+}

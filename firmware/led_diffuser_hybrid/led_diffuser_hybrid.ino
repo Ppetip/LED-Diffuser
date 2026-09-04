@@ -1,6 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <WebServer.h>
+#include <DNSServer.h>
+#include <ESPmDNS.h>
 #include <FastLED.h>
 #include <ArduinoJson.h>
 #include <NimBLEDevice.h>
@@ -22,8 +24,8 @@
 #define MAX_SHOW_FRAMES 24
 #define FRAME_BINARY_SIZE (NUM_LEDS * 3)
 #define PIXEL_HEX_LENGTH (NUM_LEDS * 6)
-#define FIRMWARE_VERSION "2.1.0"
-#define PROTOCOL_VERSION 2
+#define FIRMWARE_VERSION "3.0.0"
+#define PROTOCOL_VERSION 3
 #define DEFAULT_POWER_LIMIT_MA 750
 #define MIN_POWER_LIMIT_MA 250
 #define MAX_POWER_LIMIT_MA 10000
@@ -37,8 +39,12 @@ const char *BLE_TX = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E";
 
 CRGB leds[NUM_LEDS];
 WebServer server(80);
+DNSServer dnsServer;
 NimBLECharacteristic *txCharacteristic = nullptr;
 Preferences preferences;
+const byte DNS_PORT = 53;
+const IPAddress AP_IP(192, 168, 4, 1);
+const IPAddress AP_MASK(255, 255, 255, 0);
 
 struct DeviceState {
   String mode = "aura";
@@ -74,6 +80,11 @@ bool serialDroppingOversize = false;
 const char *SHOW_FILE = "/show.bin";
 const char *SHOW_TEMP_FILE = "/show.tmp";
 const char *SHOW_BACKUP_FILE = "/show.bak";
+
+uint16_t safeBleWriteMax() {
+  uint16_t mtu = negotiatedMtu;
+  return mtu > 23 ? min((uint16_t)(mtu - 3), (uint16_t)160) : (uint16_t)20;
+}
 
 uint8_t hexNibble(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -415,6 +426,7 @@ String stateJson() {
   doc["speed"] = deviceState.speed; doc["hue"] = deviceState.hue;
   doc["saturation"] = deviceState.saturation; doc["motion"] = deviceState.motion;
   doc["mpu"] = mpuReady; doc["ip"] = WiFi.softAPIP().toString();
+  doc["portal"] = "http://192.168.4.1"; doc["wifiClients"] = WiFi.softAPgetStationNum();
   doc["showCount"] = showCount; doc["frameMs"] = showFrameMs;
   doc["firmware"] = FIRMWARE_VERSION; doc["protocol"] = PROTOCOL_VERSION;
   doc["powerLimitMa"] = deviceState.powerLimitMa;
@@ -438,6 +450,7 @@ bool applyCommand(const String &json, String &reply) {
     status["firmware"] = FIRMWARE_VERSION; status["protocol"] = PROTOCOL_VERSION;
     status["width"] = VIEW_W; status["height"] = VIEW_H; status["maxFrames"] = MAX_SHOW_FRAMES;
     status["brightness"] = deviceState.brightness; status["powerLimitMa"] = deviceState.powerLimitMa;
+    status["bleWriteMax"] = safeBleWriteMax(); status["wifiClients"] = WiFi.softAPgetStationNum();
     status["freeHeap"] = ESP.getFreeHeap(); status["showCount"] = showCount; status["frameMs"] = showFrameMs;
     status["upload"]["active"] = uploadActive; status["upload"]["have"] = uploadReceived; status["upload"]["want"] = uploadExpected;
     status["caps"]["ble"] = true; status["caps"]["usb"] = true; status["caps"]["wifi"] = true;
@@ -587,10 +600,19 @@ bool applyCommand(const String &json, String &reply) {
   return true;
 }
 
+void attachRequestId(const String &request, String &reply) {
+  JsonDocument requestDoc;
+  if (deserializeJson(requestDoc, request) || !requestDoc["rid"].is<uint32_t>()) return;
+  JsonDocument replyDoc;
+  if (deserializeJson(replyDoc, reply)) return;
+  replyDoc["rid"] = requestDoc["rid"].as<uint32_t>();
+  reply = "";
+  serializeJson(replyDoc, reply);
+}
+
 void notifyBleReply(const String &reply) {
   String line = reply + "\n";
-  uint16_t chunkSize = negotiatedMtu - 3;
-  if (chunkSize < 20) chunkSize = 20; // Safety guard
+  uint16_t chunkSize = safeBleWriteMax();
   Serial.printf("[BLE] Sending reply of length %d in chunks of %d...\n", line.length(), chunkSize);
   for (size_t offset = 0; offset < line.length(); offset += chunkSize) {
     String chunk = line.substring(offset, min(offset + chunkSize, line.length()));
@@ -618,6 +640,7 @@ void handleUsbSerial() {
       if (serialBuffer.length()) {
         String reply;
         applyCommand(serialBuffer, reply);
+        attachRequestId(serialBuffer, reply);
         Serial.println(reply);
       }
       serialBuffer = "";
@@ -664,6 +687,7 @@ class RxCallbacks : public NimBLECharacteristicCallbacks {
       if (bleBuffer.length() > 0) {
         String reply;
         applyCommand(bleBuffer, reply);
+        attachRequestId(bleBuffer, reply);
         notifyBleReply(reply);
       }
       bleBuffer = "";
@@ -707,6 +731,28 @@ const sendJson=()=>{fetch("/api/command",{method:"POST",headers:{"Content-Type":
 fetch("/api/state").then(r=>r.json()).then(s=>{ids.forEach(k=>{if(s[k]!==undefined)(k==="motion"?window[k].checked=s[k]:window[k].value=s[k])});status.textContent=JSON.stringify(s,null,2)})
 </script>)HTML";
 
+void addCorsHeaders() {
+  server.sendHeader("Access-Control-Allow-Origin", "*");
+  server.sendHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
+  server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+  server.sendHeader("Access-Control-Allow-Private-Network", "true");
+}
+
+void servePortal() {
+  server.sendHeader("Cache-Control", "no-store, max-age=0");
+  server.send_P(200, "text/html", PAGE);
+}
+
+void redirectToPortal() {
+  if (server.method() == HTTP_OPTIONS) {
+    addCorsHeaders();
+    server.send(204, "text/plain", "");
+    return;
+  }
+  server.sendHeader("Location", "http://192.168.4.1/", true);
+  server.send(302, "text/plain", "Open LED Diffuser");
+}
+
 void setupBle() {
   NimBLEDevice::init("LED-Diffuser");
   NimBLEDevice::setMTU(185);
@@ -735,14 +781,36 @@ void setupBle() {
 
 void setupWeb() {
   WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, AP_PASS);
-  server.on("/", HTTP_GET, [](){ server.send_P(200, "text/html", PAGE); });
-  server.on("/api/state", HTTP_GET, [](){ server.send(200, "application/json", stateJson()); });
+  WiFi.setSleep(false);
+  WiFi.softAPConfig(AP_IP, AP_IP, AP_MASK);
+  if (!WiFi.softAP(AP_SSID, AP_PASS, 6, false, 4)) {
+    Serial.println("[WIFI][ERROR] Access point failed to start");
+  }
+  dnsServer.setErrorReplyCode(DNSReplyCode::NoError);
+  dnsServer.start(DNS_PORT, "*", AP_IP);
+  if (MDNS.begin("led-diffuser")) MDNS.addService("http", "tcp", 80);
+
+  server.on("/", HTTP_GET, servePortal);
+  server.on("/generate_204", HTTP_GET, servePortal);
+  server.on("/gen_204", HTTP_GET, servePortal);
+  server.on("/hotspot-detect.html", HTTP_GET, servePortal);
+  server.on("/canonical.html", HTTP_GET, servePortal);
+  server.on("/success.txt", HTTP_GET, servePortal);
+  server.on("/connecttest.txt", HTTP_GET, servePortal);
+  server.on("/ncsi.txt", HTTP_GET, servePortal);
+  server.on("/redirect", HTTP_GET, servePortal);
+  server.on("/favicon.ico", HTTP_GET, [](){ server.send(204, "image/x-icon", ""); });
+  server.on("/api/state", HTTP_GET, [](){ addCorsHeaders(); server.send(200, "application/json", stateJson()); });
   server.on("/api/command", HTTP_POST, [](){
     String reply; bool ok = applyCommand(server.arg("plain"), reply);
+    attachRequestId(server.arg("plain"), reply);
+    addCorsHeaders();
     server.send(ok ? 200 : 400, "application/json", reply);
   });
+  server.on("/api/command", HTTP_OPTIONS, [](){ addCorsHeaders(); server.send(204, "text/plain", ""); });
+  server.onNotFound(redirectToPortal);
   server.begin();
+  Serial.printf("[WIFI] Captive portal ready: %s / http://led-diffuser.local\n", WiFi.softAPIP().toString().c_str());
 }
 
 void setup() {
@@ -774,6 +842,7 @@ void setup() {
 }
 
 void loop() {
+  dnsServer.processNextRequest();
   server.handleClient();
   handleUsbSerial();
   readMpu();

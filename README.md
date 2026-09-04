@@ -8,6 +8,10 @@ ESP32-C3 firmware for a 280-pixel diffuser matrix with both:
 - A shared JSON command format so BLE, the website, and future AI tools use the same controls
 - A 750 mA default LED power budget with device status reporting
 - Everyday and Studio interfaces with named palettes and 25 curated shows
+- A true-scale 19 x 30 inch simulator with adjustable diffusion and exposure
+- Six loopable aura-first playground effects designed for the unusual pixel spacing
+- Captive-portal Wi-Fi: joining the board network opens the controller automatically
+- Request-correlated BLE/USB replies so delayed acknowledgements cannot corrupt the next command
 
 ## Hardware defaults
 
@@ -20,12 +24,25 @@ ESP32-C3 firmware for a 280-pixel diffuser matrix with both:
 - MPU6050 I2C address: 0x68
 
 The editor/view is treated as 28 pixels wide x 10 pixels high. Change the pin constants at the top of the sketch if your board differs.
+The installed face is 19 inches wide x 30 inches tall, so the Studio physical preview intentionally uses a 19:30 portrait aspect instead of square logical pixels.
 
 Use a separate 5 V LED supply with shared ground. Keep the initial brightness low.
 
 ## Build
 
-Open `firmware/led_diffuser_hybrid/led_diffuser_hybrid.ino` and install:
+From the repository root, build the tested ESP32-C3 target with:
+
+```text
+python -m platformio run
+```
+
+Upload after the board appears as a serial port:
+
+```text
+python -m platformio run --target upload
+```
+
+The upload port is auto-detected instead of being pinned to an old COM number. You can also open `firmware/led_diffuser_hybrid/led_diffuser_hybrid.ino` in Arduino IDE and install:
 
 - ESP32 Arduino core
 - FastLED
@@ -40,7 +57,11 @@ Wi-Fi:
 
 - SSID: `LED-Diffuser`
 - Password: `LEDLEDLED`
-- Dashboard: `http://192.168.4.1`
+- Captive dashboard: opens automatically after joining the network
+- Manual dashboard: `http://192.168.4.1`
+- Local name where supported: `http://led-diffuser.local`
+
+The captive portal recognizes the Android, Apple, and Windows network-check paths and redirects unknown hostnames back to the controller. Bluetooth advertising remains active while the Wi-Fi access point is running.
 
 Bluetooth:
 
@@ -64,6 +85,7 @@ Other examples:
 ```
 
 The firmware intentionally constrains output to low-resolution, abstract animation. AI-generated ideas should become parameters or 28x10 frames, not large images.
+Protocol v3 accepts an optional integer `rid` on every Wi-Fi, BLE, or USB command and echoes it in the reply. The Studio uses that value to reject stale acknowledgements while remaining compatible with v2 firmware.
 
 
 ## Use it as a wall display

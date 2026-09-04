@@ -14,7 +14,10 @@ const missing = [...refs].filter(id => !ids.has(id));
 
 assert.deepStrictEqual(missing, [], `Missing HTML elements: ${missing.join(", ")}`);
 assert(html.indexOf("program-compiler.js") < html.indexOf("app.js"), "Compiler must load before app.js");
-assert(html.includes("styles.css?v=registry1"), "Stylesheet cache key is stale");
+assert(html.includes("styles.css?v=revamp1"), "Stylesheet cache key is stale");
+assert(html.includes('id="diffuserCanvas"'), "True-scale physical preview is missing");
+assert(html.includes("physical-simulator.js?v=revamp1"), "Physical simulator is not loaded");
+assert(html.includes("revamp.js?v=revamp1"), "Revamp behavior is not loaded");
 assert(html.includes('id="adjustmentDialog"'), "Slideshow adjustment dialog is missing");
 assert(html.includes('id="validationPanel"'), "Importer validation panel is missing");
 assert(html.includes('id="blockBrowser"'), "Block browser is missing");

@@ -5,20 +5,21 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#10131b">
 <title>LED Diffuser Studio</title>
-<link rel="stylesheet" href="styles.css?v=registry1">
+<link rel="stylesheet" href="styles.css?v=revamp1">
 </head>
 <body><main>
 <div class="head">
-  <div><h1>LED Diffuser Studio</h1><div class="sub">Stable controller with BLE 20-byte transport.</div></div>
+  <div><h1>LED Diffuser Studio</h1><div class="sub">28 x 10 light field / 19 x 30 inch wall / stable BLE transport</div></div>
   <div id="status" class="status">Not connected</div>
 </div>
 <div class="layout">
 <aside class="card sidebar">
-  <div><h2>Bluetooth</h2>
+  <div><h2>Connect</h2>
     <button id="connect" class="primary">Connect Bluetooth</button>
     <button id="connectUsb">Connect USB</button>
+    <a id="wifiPortal" class="button-link" href="http://192.168.4.1" target="_blank" rel="noreferrer">Open Wi-Fi portal</a>
     <button id="disconnect" disabled>Disconnect</button>
-    <p id="message" class="note">Bluetooth: Chrome/Edge desktop or compatible Android. USB: Chrome/Edge desktop.</p>
+    <p id="message" class="note">Join LED-Diffuser Wi-Fi for the automatic portal, or use Bluetooth/USB from this studio.</p>
     <div class="progress"><span id="progress"></span></div>
   </div>
   <div class="section"><h2>Paint tools</h2>
@@ -32,6 +33,28 @@
   </div>
 </aside>
 <section class="card stage">
+  <section class="simulator-shell" aria-labelledby="simulatorTitle">
+    <div class="simulator-head">
+      <div><span class="eyebrow">Physical preview</span><h2 id="simulatorTitle">See the wall, not square pixels</h2><p>Light positions and glow use the installed board's true 19:30 shape.</p></div>
+      <span class="geometry-badge">28 across / 10 down</span>
+    </div>
+    <div class="simulator-layout">
+      <figure class="wall-preview"><div class="wall-frame"><canvas id="diffuserCanvas" width="380" height="600" aria-label="Animated physical LED diffuser preview"></canvas></div><figcaption>19 in wide x 30 in tall</figcaption></figure>
+      <div class="playground-controls">
+        <div><span class="field-title">Aura playground</span><div class="effect-grid" id="effectGrid">
+          <button type="button" data-effect="aurora">Aurora drift</button><button type="button" data-effect="tide">Tidal bands</button>
+          <button type="button" data-effect="ember">Ember veil</button><button type="button" data-effect="rain">Soft rain</button>
+          <button type="button" data-effect="constellation">Constellation</button><button type="button" data-effect="breathe">Color breathing</button>
+        </div></div>
+        <p id="effectDescription" class="effect-description">Slow vertical veils that use the tall LED spacing as atmosphere.</p>
+        <div class="transport-row"><button id="previewPlay" type="button" class="primary">Pause preview</button><button id="previewStep" type="button">Step frame</button></div>
+        <label>Diffusion <span id="previewGlowValue">1.15x</span><input id="previewGlow" type="range" min="0.35" max="2.2" step="0.05" value="1.15"></label>
+        <label>Exposure <span id="previewExposureValue">1.00x</span><input id="previewExposure" type="range" min="0.35" max="1.8" step="0.05" value="1"></label>
+        <label class="inline-check"><input id="previewGrid" type="checkbox"> Show physical cell boundaries</label>
+        <div id="previewReadout" class="preview-readout">Frame 1 / 1</div>
+      </div>
+    </div>
+  </section>
   <div class="tabs"><button class="tab active" data-pane="editor">Pixel show</button><button class="tab" data-pane="vibes">Live vibes</button></div>
   <div id="editor" class="pane">
     <div id="matrix" class="matrix"></div>
@@ -107,7 +130,10 @@
     <div class="two"><button id="resetAdjustments" type="button">Reset original</button><button id="applyAdjustments" type="button" class="primary">Apply adjustment</button></div>
   </form>
 </dialog>
-<script src="program-compiler.js?v=registry1-reset2"></script>
-<script src="app.js?v=registry1-reset2"></script>
-<script src="transport-hotfix.js?v=ble20-reset2"></script>
+<script src="program-compiler.js?v=revamp1"></script>
+<script src="template-catalog.js?v=revamp1"></script>
+<script src="physical-simulator.js?v=revamp1"></script>
+<script src="app.js?v=revamp1"></script>
+<script src="revamp.js?v=revamp1"></script>
+<script src="transport-hotfix.js?v=ble20-revamp1"></script>
 </main></body></html>
