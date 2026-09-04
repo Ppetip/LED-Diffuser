@@ -21,7 +21,7 @@ for (const marker of [
 ]) assert(firmware.includes(marker), `Firmware is missing: ${marker}`);
 
 assert(html.includes('id="diffuserCanvas"'), "Physical preview canvas is missing");
-assert(html.includes("physical-simulator.js?v=revamp1"), "Simulator script is not loaded");
+assert(html.includes("physical-simulator.js?v=revamp2"), "Simulator script is not loaded");
 assert(html.indexOf("physical-simulator.js") < html.indexOf("revamp.js"), "Simulator must load before revamp wiring");
 assert(revamp.includes("requestWaiters.get(requestId)"), "Replies are not correlated by request ID");
 assert(revamp.includes("const command = { ...payload, rid }"), "Commands do not include request IDs");

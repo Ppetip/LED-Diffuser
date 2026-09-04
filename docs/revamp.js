@@ -179,6 +179,22 @@
     return reply;
   }
 
+  async function probeUsbWithRetry() {
+    let lastError;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const reply = await sendCommand({ op: "get_status" }, 0, 0, 3500);
+        appendTransportLog(`USB firmware ${reply.firmware || "unknown"}; protocol ${reply.protocol || "?"}`);
+        return reply;
+      } catch (error) {
+        lastError = error;
+        appendTransportLog(`USB readiness check ${attempt}/3: ${error.message}`, attempt === 3 ? "error" : "info");
+        if (attempt < 3) await new Promise(resolve => setTimeout(resolve, 700));
+      }
+    }
+    throw lastError;
+  }
+
   const originalConnect = connect;
   $("connect").onclick = async () => {
     await originalConnect();
@@ -191,8 +207,11 @@
   $("connectUsb").onclick = async () => {
     await originalConnectUsb();
     if (activeTransport === "usb") {
-      try { await probeConnection(); setStatus("Connected via USB", true); }
-      catch (error) { appendTransportLog("Status probe failed: " + error.message, "error"); }
+      try { await probeUsbWithRetry(); setStatus("Connected via USB — ready", true); }
+      catch (error) {
+        setStatus("USB connected — older firmware mode", true);
+        appendTransportLog("The port is open, but the status check was not recognized. Upload remains available for older firmware.", "info");
+      }
     }
   };
 

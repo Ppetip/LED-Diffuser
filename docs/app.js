@@ -42,13 +42,13 @@ async function connectUsb(){
   if(!navigator.serial){setStatus("Web Serial requires Chrome or Edge on a computer.",false,true);return}
   try{
     serialPort=await navigator.serial.requestPort();
-    await serialPort.open({baudRate:115200});
-    await serialPort.setSignals({dataTerminalReady:true,requestToSend:false});
+    await serialPort.open({baudRate:115200,bufferSize:4096});
     serialWriter=serialPort.writable.getWriter();
     serialReadTask=readUsbLoop(serialPort);
     activeTransport="usb";
     setConnected(true,"USB");
-    await new Promise(resolve=>setTimeout(resolve,2000));
+    appendTransportLog("USB serial opened at 115200 baud. Waiting for the diffuser to become ready...");
+    await new Promise(resolve=>setTimeout(resolve,1200));
   }catch(error){setStatus(error.message||String(error),false,true)}
 }
 async function disconnectTransport(){
@@ -57,7 +57,7 @@ async function disconnectTransport(){
     if(serialWriter){serialWriter.releaseLock();serialWriter=null}
     if(serialReader){await serialReader.cancel()}
     if(serialReadTask){await serialReadTask;serialReadTask=null}
-    if(serialPort){await serialPort.setSignals({dataTerminalReady:false,requestToSend:false});await serialPort.close();serialPort=null}
+    if(serialPort){await serialPort.close();serialPort=null}
   }finally{activeTransport=null;rejectPendingReplies("Disconnected");setConnected(false)}
 }
 function appendTransportLog(message,level="info"){
