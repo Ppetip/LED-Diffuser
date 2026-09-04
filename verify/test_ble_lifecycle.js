@@ -11,8 +11,12 @@ function position(fragment) {
 const createServer = position("NimBLEDevice::createServer()");
 const createService = position("bleServer->createService(BLE_SERVICE)");
 const startServer = position("bleServer->start()");
-const startAdvertising = position("advertising->start()");
+const startAdvertising = position("bool advertisingStarted = advertising->start()");
 position("bleServer->advertiseOnDisconnect(true)");
+position("void onDisconnect(NimBLEServer* pServer");
+position("bleBuffer = \"\"");
+position("bleDroppingOversize = false");
+position("[BLE] Advertising restarted after disconnect");
 position("#define BLE_NOTIFY_CHUNK_SIZE 20");
 position("[BLE][ERROR] Notification delivery failed");
 
@@ -20,4 +24,4 @@ if (!(createServer < createService && createService < startServer && startServer
   throw new Error("BLE GATT server must start after service creation and before advertising");
 }
 
-console.log("BLE lifecycle regression test passed");
+console.log("BLE lifecycle and automatic re-advertising regression test passed");

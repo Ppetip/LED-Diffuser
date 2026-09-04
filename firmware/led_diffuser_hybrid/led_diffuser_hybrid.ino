@@ -24,7 +24,7 @@
 #define MAX_SHOW_FRAMES 24
 #define FRAME_BINARY_SIZE (NUM_LEDS * 3)
 #define PIXEL_HEX_LENGTH (NUM_LEDS * 6)
-#define FIRMWARE_VERSION "3.0.0"
+#define FIRMWARE_VERSION "3.0.1"
 #define PROTOCOL_VERSION 3
 #define DEFAULT_POWER_LIMIT_MA 750
 #define MIN_POWER_LIMIT_MA 250
@@ -665,7 +665,18 @@ class MyServerCallbacks : public NimBLEServerCallbacks {
   void onDisconnect(NimBLEServer* pServer, NimBLEConnInfo& connInfo, int reason) override {
     Serial.printf("[BLE] Client disconnected. Handle: %d, Reason: 0x%02X\n", 
                   connInfo.getConnHandle(), reason);
-    negotiatedMtu = 23; // Reset to default MTU on disconnect
+    negotiatedMtu = 23;
+    bleBuffer = "";
+    bleDroppingOversize = false;
+
+    NimBLEAdvertising* advertising = NimBLEDevice::getAdvertising();
+    if (!advertising->isAdvertising()) {
+      bool restarted = advertising->start();
+      Serial.println(restarted ? "[BLE] Advertising restarted after disconnect"
+                               : "[BLE][ERROR] Advertising restart failed");
+    } else {
+      Serial.println("[BLE] Advertising already active after disconnect");
+    }
   }
   void onMTUChange(uint16_t MTU, NimBLEConnInfo& connInfo) override {
     Serial.printf("[BLE] MTU updated to %d for connection %d\n", MTU, connInfo.getConnHandle());
